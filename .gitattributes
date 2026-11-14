@@ -1,0 +1,7 @@
+# Normalize line endings for text; Godot reads LF fine on every platform.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.wav binary
+*.ogg binary
+*.glb binary
