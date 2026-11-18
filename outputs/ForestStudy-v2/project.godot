@@ -1,0 +1,9 @@
+config_version=5
+[application]
+config/name="Lowlight Forest Study"
+run/main_scene="res://gallery.tscn"
+[display]
+window/size/viewport_width=1200
+window/size/viewport_height=760
+[rendering]
+renderer/rendering_method="gl_compatibility"
