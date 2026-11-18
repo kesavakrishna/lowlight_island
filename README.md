@@ -1,7 +1,7 @@
 # Lowlight Island
 
 First-person online co-op survival horror for 2–4 friends, built with **Godot 4.7 + GDScript**.
-The full design brief lives in [docs/DESIGN.md](docs/DESIGN.md).
+The full design brief lives in [LOWLIGHT_ISLAND.md](LOWLIGHT_ISLAND.md).
 
 ## Status: milestones 1–2 (test clearing)
 
@@ -10,6 +10,13 @@ The full design brief lives in [docs/DESIGN.md](docs/DESIGN.md).
 | 1. Smallest connected test | Done: first-person clearing, host-authoritative movement with client prediction, Host / Join by Address, shared day–dusk–night–dawn clock, placeholder geometry |
 | 2. Prove the night | Done in the fixture: the Stalker (sight + light + weak hearing), line-of-sight and lost-sight search, tall grass and bush hiding, three climbable tree types (low branches, rough trunk, bare trunk + ladder), deck + rope exit, cave door with intact / damaged / broken states and a prone-only crawl exit, witnessed-climb commitment, bark-scrape and breach cues with on-screen direction arrows, noisemaker decoys, down / crawl / revive. **Remote (non-LAN) test still to do — see below.** |
 | 3. Procedural islands | Next |
+
+## Prototype v2 (reference)
+
+`prototypes/v2/` holds a separately built solo prototype (Godot 4.5.1) with much richer art — a 420 m
+island, four landscape types, branch climbing and ~43 generated plant and rock models. It is kept playable
+as a reference, and its art and world-generation ideas are being ported into this project.
+See [prototypes/README.md](prototypes/README.md).
 
 ## Run it
 

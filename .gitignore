@@ -2,6 +2,7 @@
 .godot/
 /android/
 *.translation
+*.log
 
 # Exports and local builds
 /build/
@@ -9,6 +10,9 @@
 *.pck
 *.exe
 !tools/*.exe
+
+# Portable engines that the prototype launchers look for
+prototypes/v2/work/godot/
 
 # OS / editor
 .DS_Store

@@ -4,15 +4,15 @@ This is the design reference for building **Lowlight Island** with Claude Code. 
 
 ## 1. The game
 
-Lowlight Island is a **first-person 3D online co-op survival horror game for 2–4 friends**. Aim for grounded, modest-detail environments and flashlight-driven horror inspired by Phasmophobia. The crew crashes on an unfamiliar island and must get off it. By day, players scout terrain, read clues, gather wood, build shelter, rescue captured friends, and recover the battery needed to call for rescue. At dusk, creatures emerge from underground. Different types hunt by different senses — sight, sound, ground vibration — and they come back stronger and smarter every night. They investigate noises, follow traces to places the crew has occupied, climb trees, and break into shelters. Each creature has its own personality, carries scars from earlier encounters, and learns from how the crew escaped it. Darkness wears down each player's Nerve, and light restores it — the same light that draws the creatures. The crew escapes by powering the radio, surviving a loud and bright broadcast, and reaching the rescue boat at dawn.
+Lowlight Island is a **first-person 3D online co-op survival horror game for 2–4 friends**. Aim for grounded, modest-detail environments and flashlight-driven horror inspired by Phasmophobia. The crew crashes on an unfamiliar island and must get off it. By day, players scout terrain, read clues, gather wood, build shelter, and recover the battery needed to call for rescue. At dusk, creatures emerge from underground. They see exposed players and bright lights, investigate noises, and can follow traces to places the crew has occupied. They climb trees and break into shelters. At dawn, the crew must reach the rescue boat.
 
 The signature moment comes just before sunset. One friend thinks the team can still reach the radio, another wants to barricade the cave, and the player carrying the battery knows they can't climb to the canopy with it. Make all three positions reasonable. During the night, reward players for reading the danger, preparing an exit, and helping each other improvise when a plan goes wrong.
 
-**v1:** One complete run spanning as many day–night cycles as the crew needs — **there is no run timer**. The pressure is escalation: each night the creatures return stronger and smarter, so every extra day on the island raises the cost of stalling. Aim for a typical escape of **three to six days, roughly 30–60 minutes**, after tuning. Each new run generates a new island. Start testing with two players and a small area, then support up to four for the complete release. Target a native Windows build with keyboard and mouse first. Use first person so players can peek from a cave, crawl at grass height, and look down from a treehouse. Give camera shake a setting and let players adjust mouse sensitivity and field of view.
+**v1:** One complete run with one day, one night, and a short dawn extraction phase. Aim for **15–20 minutes** after tuning. Each new run generates a new island. Start testing with two players and a small area, then support up to four for the complete release. Target a native Windows build with keyboard and mouse first. Use first person so players can peek from a cave, crawl at grass height, and look down from a treehouse. Give camera shake a setting and let players adjust mouse sensitivity and field of view.
 
 ## 2. Story and delivery
 
-A storm forces the crew's charter plane down on a remote island. An abandoned lighthouse flashes three times as the survivors leave the wreck. At the keeper's cottage, a logbook warns: “If you see the lamp flash after dark, get below the windows.” The keeper learned that the creatures emerge at dusk and track steady light. After losing the main dock, she moved the rescue transmitter to a tidal cave and wired it to signal ships. Her last entries warn that the transmitter is a beacon in both directions: the broadcast glows and hums, and the creatures converge on it. Her log ends partway through the repairs.
+A storm forces the crew's charter plane down on a remote island. An abandoned lighthouse flashes three times as the survivors leave the wreck. At the keeper's cottage, a logbook warns: “If you see the lamp flash after dark, get below the windows.” The keeper learned that the creatures emerge at dusk and track steady light. After losing the main dock, she moved the rescue transmitter to a tidal cave and wired it to signal ships. Her log ends partway through the repairs.
 
 For v1, use the **radio shed** as the playable transmitter site and an **old dock** as the pickup point. The lighthouse, cottage, and tidal transmitter can appear in notes or scenery as scope allows. A later version can turn the keeper's full route into a longer story. Keep her fate unresolved in v1.
 
@@ -23,12 +23,12 @@ Tell the story through things players can use. A keeper's note can explain why c
 | Phase | What happens | Decision to preserve |
 |---|---|---|
 | Lobby | A host opens a private session, friends join by address in v1, and the host starts with 2–4 players. | Get into a run quickly. |
-| Day | Spawn at the crash on day one with a rough map, a battery clue, and access to a limited supply of wood. Scout, salvage, build, carry the battery toward the radio, and raid burrows to rescue captured teammates. | Push the objective, or spend the day on wood, safer routes, a rescue, and a stronger shelter for tonight. |
+| Daylight | Spawn at the crash with a rough map, a battery clue, and access to a limited supply of wood. Scout, salvage, build, and carry the battery to the radio. | Take the direct route or spend time finding a safer crossing, more wood, or a fallback shelter. |
 | Dusk | The sun and shared clock warn the crew. Creatures emerge as night starts. | Push on or commit to a hiding place while there is time to prepare. |
-| Night | Hide, listen for patrols, rest, relocate, and help stranded teammates. Each night the creatures return stronger and smarter, and a new type can surface. If the radio is powered, the crew can choose to run the broadcast tonight. | Trust the current shelter, relocate, or commit to the loud broadcast while the crew is still strong. |
-| Dawn and repeat | After a completed broadcast, the boat arrives at the next dawn and holds for a limited boarding window. Until then, the day–night loop repeats with rising danger. | Get everyone aboard or leave while at least one player can still escape. |
+| Night | Continue the objective when safe, listen for patrols, rest, relocate, and help stranded teammates. | Trust the current shelter a little longer or leave while the escape route is still clear. |
+| Dawn | If the crew called ahead, the boat arrives at dawn. If they haven't called, they can still do it in the morning, with a short deadline to complete the call and board. | Get everyone aboard or leave while at least one player can still escape. |
 
-The required objective chain is **crash → battery → radio shed → broadcast → dock**. Installing the battery powers the radio. The call is not instant: **the broadcast runs for several minutes, lights up the shed, and hums loudly enough to carry** — every creature in range converges on it. The crew decides which night to broadcast and how to survive it: defend the shed, rotate decoys, split the creatures' attention while one player keeps the transmitter running. An interrupted broadcast keeps its progress, so a crew can finish it in stages across nights. After a completed broadcast, the boat arrives at the next dawn and holds for a limited boarding window. Creatures linger in the shaded stretches of the route to the dock at dawn, so the final leg is a run, not a victory lap. Boarding with at least one player counts as a crew win. The results screen shows who escaped and how many nights it took, and offers a rematch with a fresh seed. There is no run deadline — escalation is the clock. If every player is down or captured at the same time, the run ends in a loss.
+The required objective chain is **crash → battery → radio shed → dock**. Installing the battery powers the radio, then a player uses the radio to call for pickup. Use a clearly shown end to the dawn window so the run can't stall indefinitely. Boarding with at least one player counts as a crew win. The results screen shows who escaped and offers a rematch with a fresh seed. If everyone is down at once, or the pickup window closes and nobody escaped, the run ends in a loss.
 
 The terrain, not an unrelated hunger or crafting timer, should make players feel pressed for time. Give them enough daylight to make meaningful progress and reach cover on a direct route. Extra salvage and safer approaches can cost time. Night should still contain decisions, even after a good shelter is built.
 
@@ -65,53 +65,7 @@ Generate a finite height grid and convert it into continuous 3D terrain meshes i
 
 ## 6. Hiding and creature behavior
 
-Ship a **pool of creature types with distinct traits**, all built on one shared behavior core. Each run draws from the pool, so crews must read tracks, sounds, and silhouettes to work out what they're up against. For development, still start with a single Stalker in the first test scene and add types one at a time.
-
-### Creature types (v1 pool)
-
-| Type | Senses and traits | What it punishes | How to beat it |
-|---|---|---|---|
-| **Stalker** | Hunts by sight. Drawn to light and movement, fast in pursuit, weak hearing. | Lanterns, crossing open ground, standing silhouettes. | Light discipline, breaking line of sight, staying low. |
-| **Listener** | Blind. Acute hearing and ground-feel; ignores light entirely. | Sprinting, building at night, splashing, loud shelters. | Moving slowly, timing noise to wind and rain, decoys. |
-| **Digger** | Senses vibration through soft ground and surfaces from below. Cannot climb. | Ground shelters on soil, camping in one spot. | Rock ledges, tree platforms, caves with stone floors. |
-| **Climber** | Slower on the ground but climbs trunks fast and shakes platforms. | Treating the canopy as automatically safe. | Rope exits, screens, perching only with a watch kept. |
-
-Give each type a distinct silhouette, call, footstep sound, and track so a crew can identify it from evidence before the first encounter, and tell each other "it's a Listener night" in their own words.
-
-### Nightly escalation
-
-Creatures return **stronger and smarter every night**. Drive escalation from the night index through one tunable table:
-
-- **Stronger:** more individuals on patrol, faster movement, wider sight and hearing ranges, quicker breaches.
-- **Smarter:** later nights unlock behaviors — checking known hiding spots first, remembering shelters and entrances the crew has used, searching in pairs, cutting off a fleeing player's route instead of chasing directly.
-- **Deeper pool:** night one draws one or two types; later nights add individuals and can surface a type the crew hasn't met yet, announced by new tracks found the next morning.
-
-**Escalation curve.** Difficulty rises in two phases, controlled by one tunable threshold night (start at **night 4**):
-
-- **Ramp phase (nights 1 to threshold):** gentle, linear increases. Each night adds a small fixed amount to patrol count, speed, sense range, and breach speed, and unlocks the next "smarter" behavior. This is the learning window: enough time to find the battery, power the radio, rescue a captive, and meet most of the pool.
-- **Exponential phase (after the threshold):** each night multiplies the escalation values by a growth factor (start at **×1.5 per night**) instead of adding to them. The island goes from dangerous to unsurvivable within a few nights.
-
-Put the exponential growth where it stays readable: **number of individuals, breach speed, search thoroughness, and time spent checking hiding spots**. Cap the stats that would break the hiding game — creature speed stays below player sprint, and sight and hearing ranges stop at a maximum — so late nights feel like being overwhelmed, not like being cheated. The curve should feel like a soft deadline: no timer ever appears, but by two or three nights past the threshold the crew has to have broadcast already.
-
-Signal the shift. On the first night past the threshold, give a clear in-world warning (louder calls at dusk, far more burrows opening, a keeper's note found earlier that says "after the fourth night they stop hiding") so the crew knows they've crossed into the exponential phase.
-
-Escalation is the game's clock. A crew that stalls never hits a timer — they face a night they're no longer equipped for. Tune so night one is survivable with improvised cover, the threshold night demands real preparation, and every night after it is noticeably worse than the last. Weight patrol routes toward the objective legs (battery site, radio approach, dock) and the crew's general region so every night produces encounters without feeling scripted.
-
-### Creature memory and personality
-
-Every individual creature **persists for the whole run** and remembers the crew. Memory lasts only within a run — a new seed brings new creatures. Do not build ranks, promotions, a creature hierarchy, or cross-run persistence; the Nemesis System that inspired this is patented, so keep the design to individual memory and personality within one run, and check with an IP lawyer before any commercial release.
-
-- **Scars.** What happens to a creature shows on its body, so players can recognize individuals. A shoved creature limps or carries a visible wound. A creature that captured a player carries that player's dropped lantern, still glowing faintly. Each creature also keeps its type's base silhouette so it stays identifiable.
-- **Learned counters.** Each creature records how players escaped it and adapts on its next encounters: a rope escape makes it check rope landings, a decoy that fooled it makes it more likely to ignore noisemakers, a grass hide makes it rake grass patches, a cave door it failed to breach makes it return to that cave sooner. Learning is per individual, so the crew has to keep track of which creature knows what. Cap how many counters one creature holds and let old ones fade, so no single creature becomes unbeatable.
-- **Grudges.** A creature fixates on the player who shoved it, escaped it most, or blinded it with light. It prioritizes that player when choosing targets, and that player's Nerve drains faster when it is near.
-
-**Personality.** Roll a small set of traits for each individual at spawn — **bold or cautious, patient or impulsive, curious, territorial** — and use them to weight its choices in a utility-style decision layer on top of the shared state machine (patrol → investigate → search → chase or breach). Two Stalkers with the same senses should behave noticeably differently: one charges every light, another circles and waits. Traits never change what a creature can perceive, only how it acts on what it perceives.
-
-**Learned tricks unlocked by escalation.** Later nights unlock behaviors on top of personality: **feigned retreat** (leaving a hiding spot, then doubling back), **flush and wait** (one creature drives players out while another holds the exit), and **freezing still** near a shelter it suspects. Each trick needs a readable tell — a sound that stops abruptly, a silhouette that doesn't move — so a careful crew can catch it.
-
-Show every creature's current state, active traits, learned counters, grudge target, and the reason for its last decision in a development debug overlay.
-
-All types share the same cue classes, weighted per type — a Listener ignores sight entirely, a Stalker barely hears:
+Ship **one creature type**. Start with one individual in the first scene. Use additional patrols in the full island only if playtesting shows they add pressure without making escapes unreadable.
 
 | Cue | Creature response | Player response |
 |---|---|---|
@@ -119,7 +73,7 @@ All types share the same cue classes, weighted per type — a Listener ignores s
 | **Sound** | Investigates footsteps, splashes, branches, building, or a noisemaker at the source. A second sound nearby can prolong or focus the search. | Wait quietly, move during an opening, or send it toward a decoy. A creature that still sees a player keeps pursuing. |
 | **Traces** | Finds fresh trails when a patrol passes close enough, follows them, and checks likely hiding places. Repeated approaches and multiple occupants build more traces. Quiet occupation builds them slowly, and they fade when the site is vacant. | Avoid reusing the same approach, choose a sheltered spot away from patrols, or leave while it is still checking. |
 
-Use readable states: **patrol → investigate → search → chase or breach**. A creature can go straight to chase or climb on confirmed sight. On lost sight, search from the last known position before resuming patrol. A trace or an empty ladder is reason to investigate, while direct sight of an entry, strong evidence during the search, or a branch shaking above an investigating creature can trigger a committed climb. Keep traces local and tunable. A creature needs to encounter evidence. A well-chosen shelter can last the full night, and lingering increases risk without forcing an automatic breach at a fixed time. Across a multi-day run, traces are what keep one perfect shelter from trivializing every night: staying put builds risk night over night, and relocating resets it.
+Use readable states: **patrol → investigate → search → chase or breach**. A creature can go straight to chase or climb on confirmed sight. On lost sight, search from the last known position before resuming patrol. A trace or an empty ladder is reason to investigate, while direct sight of an entry, strong evidence during the search, or a branch shaking above an investigating creature can trigger a committed climb. Keep traces local and tunable. A creature needs to encounter evidence. A well-chosen shelter can last the full night, and lingering increases risk without forcing an automatic breach at a fixed time.
 
 | Hide | Strength | How it fails |
 |---|---|---|
@@ -130,29 +84,6 @@ Use readable states: **patrol → investigate → search → chase or breach**. 
 | **Built shelter** | Conceals a group, offers a place to rest, and buys time against a breach. | Evidence can draw the creature to the site. Cover degrades if attacked. |
 
 In first person, terrain and walls naturally block the view. Use server-side 3D sight checks from the creature's eye position to player exposure points, taking stance, authored grass or bush cover, and visible light into account. Use simple, explicit light detection rules so changing a graphics setting doesn't change stealth. Keep nearby terrain and cover readable after dark. Concealment feedback should say whether cover applies without promising safety from a search. Give distinct cues for passing footsteps, changes in the search, bark scraping, a door under pressure, and the final moments before a breach. Pair critical audio cues with a visible directional cue or animation. Let friends use their own voice chat. Only in-game actions affect creature hearing.
-
-## 6a. Nerve (sanity)
-
-Each player has a **Nerve** meter, inspired by Phasmophobia's sanity. Its core purpose is to set up one tradeoff every night: **light keeps you sane, and light gets you found.**
-
-| Drains Nerve | Restores Nerve |
-|---|---|
-| Standing in darkness, especially outdoors | Light: an unshuttered lantern or a fire in a shelter |
-| Being separated from the crew | Staying close to teammates |
-| Seeing a creature, hearing calls, a nearby breach | Resting in a shelter while someone keeps watch |
-| A teammate being downed or captured | Daylight, and rescuing a captive |
-| Later nights (drain rate scales with escalation, faster in the exponential phase) | |
-
-**Effects of low Nerve:**
-
-- **Hallucinations, private to that player.** Phantom footsteps, silhouettes in the tree line, a false flicker at the edge of the beam, a call from the wrong direction. Hallucinations are client-side only and never reach other players, so the crew has a natural co-op check: "do you see that?"
-- **Louder breathing.** Below a threshold, the player breathes audibly in the game world, and creatures can hear it like any other sound.
-- **Shakier light.** The lantern beam wavers, and fast shuttering takes slightly longer.
-- **Targeting.** When creatures pick between possible targets, they favor the player with the lowest Nerve, like Phasmophobia's hunts.
-
-**Fairness rules.** Hallucinations never imitate the critical warnings — a committed climb, a door under pressure, the final moments before a breach, or their visible directional cues. Those signals are always real, including in the muted-audio mode. Nerve never kills or downs a player on its own, and it always recovers with light, company, rest, or daylight. Display Nerve through the player's body and senses (breathing, vignette, beam steadiness) with an optional numeric meter in settings.
-
-The host owns each player's Nerve value. Each client generates only its own hallucinations from that value.
 
 ## 7. Trees, shelters, and building
 
@@ -181,11 +112,10 @@ Build at fixed slots for v1. Preview what a placement covers, require a valid sp
 
 ## 8. Tools, fighting, and recovery
 
-- **Shuttered lantern:** Helps with navigation and scouting, and restores Nerve while open. The visible light can attract creatures. Allow fast shuttering while moving. The lantern flickers when a creature is close — a real, server-driven warning, never a hallucination.
+- **Shuttered lantern:** Helps with navigation and scouting. The visible light can attract creatures. Allow fast shuttering while moving.
 - **Throwable noisemaker:** Pulls a searching creature toward the sound. It can create a short window to reach the grass or move a downed friend. It won't reliably cancel confirmed pursuit or a climb the creature has committed to.
 - **Shove:** Your one close-range defense. It makes a creature recoil briefly and costs most of your stamina. Tune the recovery so a player cannot hold a doorway indefinitely by repeatedly shoving. Use it to get past or rescue someone. Creatures have no killable combat loop in v1.
-- **Down, crawl, and revive:** A creature that catches a player downs them. A downed player is not a spectator: they can **crawl slowly and quietly**, inching toward cover or teammates, and use silent pings. A teammate can revive them once there's an opening. Leave dropped gear where it fell. Keep player positions and item drops valid even during a climb or breach.
-- **Capture and burrow rescue:** If a creature reaches a downed player, it starts **dragging them toward a burrow**. The drag is slow and interruptible — a shove or a well-timed decoy breaks it. A player dragged all the way becomes captive in the burrow and spectates teammates until rescued. Burrows are marked on the map once seen, and a daytime **burrow raid** frees the captive: creatures inside are sluggish in daylight, but the deeper dark is still dangerous, so the raid is a real excursion, not a formality. Rescue gives days a second job beyond the objective and keeps a caught friend in the story. If the entire crew is down or captive at once, the run ends.
+- **Down and revive:** A creature that catches a player downs them. A teammate can revive them once there's an opening. If left downed overnight, that player returns at dawn near the last occupied shelter or a safe fallback if at least one teammate survived. Leave dropped gear where it fell. Keep player positions and item drops valid even during a climb or breach.
 - **Reconnect:** Give a disconnected player a short opportunity to rejoin their existing slot using a reconnect token. Preserve the slot's server state and inventory, with the avatar still subject to the match. Validate the token and room membership on the server.
 
 Example: the crew sets up a screened platform above a patch of grass. The battery is stashed below because the carrier can't climb with it. A late teammate is spotted climbing, and the creature goes straight for the trunk. One player takes the rope into the grass, another waits for a clear chance to retrieve the battery, and a third throws a decoy to distract a searching patrol that hasn't seen them. They can abandon the battery for the moment if the route to it is compromised. The breach changes the plan and leaves the crew with choices.
@@ -206,11 +136,9 @@ Keep the project in one repository. Keep world generation independent of renderi
 
 Keep tuned settings in one obvious place. Use shared terrain classifications for collision, movement cost, and route validation. Keep visibility distinct from collision, and separate authored art layers from gameplay markers for sight blockers, cover, build slots, climb positions, and exits. Use simple debug overlays during development to show what the creature can see, the last known target, and a build slot's coverage.
 
-Run two local game instances first, then test on two computers on the same Wi-Fi, and **do the first remote (non-LAN) test early — by milestone 2, not at the end** — remote connectivity is the most common reason friends can't actually play together. Remote friends need a reachable UDP host, and most home connections sit behind CGNAT where port forwarding fails. Treat a free mesh VPN such as Tailscale or Radmin as the default remote path and ship short setup instructions with v1; use a forwarded game port or a reachable headless server where available. A short join code alone cannot connect peers across the internet. Ship Host and Join by Address for the first build. Add shareable room codes only if you choose infrastructure that can resolve them to a reachable host. Preserve private access separately from reconnect tokens. Hosting may cost money. Avoid accounts, persistent profiles, and public matchmaking in v1. [Godot command line and headless options](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html)
+Run two local game instances first, then test on two computers on the same Wi-Fi. Remote friends need a reachable UDP host. Use an available private network, a forwarded game port where feasible, or a reachable headless server. A short join code alone cannot connect peers across the internet. Ship Host and Join by Address for the first build. Add shareable room codes only if you choose infrastructure that can resolve them to a reachable host. Preserve private access separately from reconnect tokens. Hosting may cost money. Avoid accounts, persistent profiles, and public matchmaking in v1. [Godot command line and headless options](https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html)
 
 ## 10. Asset production on a zero tooling budget
-
-**Who makes what.** Claude Code can produce most of the environment directly as code: models built from primitives and generated meshes in GDScript (trees, shed, dock, boards, rocks, and intact, damaged, and broken states), Blender Python scripts for more detailed low-poly models exported as `.glb`, shaders (water, wind sway, fog, lantern flicker, and the low-Nerve screen distortion), generated noise textures, UI icons, and simple keyframed animation. Claude can't generate realistic raster textures or recorded audio. For those, use CC0 libraries such as [Poly Haven](https://polyhaven.com/) and [ambientCG](https://ambientcg.com/) for textures, and phone recordings or [Freesound](https://freesound.org/) (check each sound's license) for audio. The **creature** is the hardest and most important asset: start with a stylized low-poly creature Claude builds in code — darkness and silhouette carry most of the horror — and replace it later with a CC0 model (for example from Quaternius) animated with Mixamo, or a custom model, if playtests call for more detail. Scars and carried items attach to sockets on whichever creature model is used.
 
 Start with primitive placeholders in Godot. For finished assets, use modest geometry, believable proportions, and a small set of shared materials for soil, rock, bark, wet ground, and worn wood. Put finer surface detail in textures. Prioritize what a light reveals at arm's length: tree bark, the cave entrance, a damaged door, the player's tool, and the creature's silhouette.
 
@@ -231,10 +159,10 @@ For the first art pass, make a ground palette for the five terrain types, a reco
 ## 11. Implementation order for Claude Code
 
 1. **Create the smallest connected test.** Build a 3D first-person test clearing with a tree, a cave, and grass. Run two Godot game instances locally with host-controlled movement, direct-address join, a shared clock, and placeholder geometry.
-2. **Prove the night.** Add line of sight, lost-sight search, tall-grass hiding, a climbable tree, a rope, a cave door, and one creature — the Stalker — that follows a witnessed climb. Add a decoy, a visible climb cue, and a clear breach window. Test whether a player can evade the creature, whether both clients agree on damage, and whether an unseen climb plays out differently from a witnessed one. Do the first remote (non-LAN) connection test during this milestone.
+2. **Prove the night.** Add line of sight, lost-sight search, tall-grass hiding, a climbable tree, a rope, a cave door, and one creature that follows a witnessed climb. Add a decoy, a visible climb cue, and a clear breach window. Test whether a player can evade the creature, whether both clients agree on damage, and whether an unseen climb plays out differently from a witnessed one.
 3. **Prove that seeds make new worlds.** Build the colored tile preview and route validator. Generate whole islands with all four core biomes and different coastlines and objectives. Add reusable landmarks and verify lots of seeds before spending time on art. The fixed test clearing can stay as a development fixture.
-4. **Connect one full escape run.** Add gathering, battery carry and drop, the timed broadcast that attracts creatures, the repeating day–night loop, nightly escalation driven by one tunable table, dawn boarding after a completed call, and win or loss. Have the host generate and share a fresh world when starting or rematching. Make shortcuts, route costs, and shelter placements matter to a crew carrying the battery.
-5. **Finish the co-op systems.** Add the remaining creature types one at a time (Listener, Digger, Climber), creature persistence with scars, learned counters, grudges, and personality traits, then escalation tricks (feigned retreat, flush and wait, freezing still). Add Nerve with its drain and restore sources, then hallucinations last, once the real cues are reliable. Also add all tree types and ladders, the remaining construction and damage states, trace-based investigations, shove, rest, crawl, capture and burrow rescue, rejoin, silent pings, and rematch. Keep asset states aligned with the server's rules.
+4. **Connect one full escape run.** Add gathering, battery carry and drop, radio activation, day and night pacing, dawn boarding, and win or loss. Have the host generate and share a fresh world when starting or rematching. Make shortcuts, route costs, and shelter placements matter to a crew carrying the battery.
+5. **Finish the co-op systems.** Add all tree types and ladders, the remaining construction and damage states, trace-based investigations, shove, rest, down and revive, rejoin, silent pings, and rematch. Keep asset states aligned with the server's rules.
 6. **Replace placeholders and playtest.** Add final core art and sound, teach the controls through the lobby and first run, test 2–4 players across separate devices, and tune travel, exposure, and night pressure. Fix objective and extraction blockers before polishing optional content.
 
 Keep changes small and reuse platform features first. Preserve input validation, accessibility, readable failure states, and the ability to recover dropped objective items. Write focused tests for world generation and hard-to-reproduce multiplayer or objective regressions. Use hands-on playtests for tension and pacing.
@@ -242,18 +170,25 @@ Keep changes small and reuse platform features first. Preserve input validation,
 ## 12. v1 acceptance checks
 
 - **Fresh world:** Starting a new run or rematch changes the layout, not just the positions of loot. Test several seeds and check that they change where players travel and spend the night. A replayed seed reproduces the same world layout.
-- **Fair objective:** A crew can reach the battery, carry it to the radio without a climb, survive a broadcast, and reach the boat. A downed carrier, rough terrain, or a narrow entrance never leaves the battery permanently inaccessible. The run has a clear outcome, and escalation — not a timer — makes stalling visibly costly.
-- **Fair detection:** An unseen player in cover can let a patrol pass. A creature can follow a witnessed climb, investigate a lantern or a noise, and eventually find a frequently used shelter through nearby evidence. Players can read the difference between patrol, search, and imminent breach. Each creature type is identifiable from its silhouette, sounds, and tracks, and players can recognize a returning individual by its scars. A creature visibly adapts to a counter the crew used on it before, and two creatures of the same type behave differently. Hallucinations never imitate a critical warning, and a player can always recover Nerve. Night three is noticeably more dangerous than night one, and each night past the threshold is clearly worse than the one before, while capped speed and sense ranges still let a hidden player survive a patrol.
+- **Fair objective:** A crew can reach the battery, carry it to the radio without a climb, and reach the boat. A downed carrier, rough terrain, or a narrow entrance never leaves the battery permanently inaccessible. The game has a clear deadline and outcome.
+- **Fair detection:** An unseen player in cover can let a patrol pass. A creature can follow a witnessed climb, investigate a lantern or a noise, and eventually find a frequently used shelter through nearby evidence. Players can read the difference between patrol, search, and imminent breach.
 - **Useful shelters:** Every tree can be climbed at least partway by hand and all the way with a ladder. Only sturdy trees take a platform. A compromised platform with a rope offers a practical exit. A cave door shows damage and buys time. A missed build still leaves grass, bushes, and opportunistic perches useful.
-- **Recoverable mistakes:** Test a witnessed climb, a breached cave door, a dropped battery, a captured teammate, and a player briefly disconnecting. Each has a credible recovery when the rest of the crew acts in time — including a daytime burrow rescue. A fully downed or captured crew can restart from results.
+- **Recoverable mistakes:** Test a witnessed climb, a breached cave door, a dropped battery, and a player briefly disconnecting. Each has a credible recovery when the rest of the crew acts in time. A fully downed crew can restart from results.
 - **Complete session:** Two to four friends can open the desktop build, connect to the host, learn the controls and objective, see the shared time, call the boat, understand who escaped, and rematch without a developer explaining it. Verify LAN play and test the chosen remote connection method before a remote playtest. Critical creature cues also work with audio muted.
 - **Reason to replay:** After a run, ask what players would do differently. Look for concrete answers such as taking the dry bank, putting the ladder up early, saving wood for the rope, or leaving the battery under cover before dark.
 
 ## 13. Ideas to defer
 
-- More of the keeper's story, ruins of past runs appearing in new seeds, and a longer coastal finale.
+- A 25–35 minute mode with three or four nights, persistent shelter choices within a run, more of the keeper's story, and a longer coastal finale.
 - A second escape route with a repairable fishing skiff. Gathering its parts changes the crew's route, and the engine attracts creatures during the launch.
-- Creature types beyond the v1 pool, richer tide changes, and more build parts, such as door braces or a timed decoy lamp. Add them when they create decisions the existing tools can't support.
-- In-game proximity voice chat that creatures can hear. It's the genre's best moment-generator, but real-time voice in Godot is a project of its own — revisit after v1.
-- An optional fixed-length short mode (a hard cap of two or three nights), or difficulty presets that change the threshold night and growth factor, if playtests show the default curve doesn't pace runs well.
+- Additional creature types, richer tide changes, and more build parts, such as door braces or a timed decoy lamp. Add them when they create decisions the existing tools can't support.
 - Player traits, permanent classes, weapon trees, hunger, extensive recipes, and free-form construction. v1 roles arise from who carries the battery, watches an entrance, builds, or spends the last decoy. Let player knowledge carry between runs.
+
+## Island art and traversal preferences
+
+Use sparse flying lights around marshes and damp forest, with a gradual fade after nightfall and complete darkness of the particles by sunrise. Favor moss, algae-green streaks, and weathered bark over pink trunk growth. Keep occasional flowers on the banks. Preserve open grassland beside dense forest, shallow flowing water, steep exposed cliff faces with grassy rear approaches, and a clear ground route between objectives. Canopy crossings provide an optional route. The current solo prototype island is 420 meters across.
+
+## Canopy Realism
+
+“Canopy Realism” is the project's name for the rendering style of the Walk the Canopy forest preview. When requested, use that preview as the visual reference for models, materials, and lighting across the island. Use natural forms with clean silhouettes, matte surfaces, restrained texture grain, and soft shading. On foliage, give individual leaves a visible fold and let overlapping sprays build depth. Apply the same treatment to rocks, structures, and other assets in their own biome palettes.
+Canopy Realism is now the default direction for the whole playable game. The crash-site forest uses the original Forest Study species and canopy crossing.
