@@ -88,6 +88,20 @@ var door_hp := 100.0
 var door_damaged_below := 60.0       # intact -> damaged (still blocks body sight, leaks light)
 var door_breach_warn_below := 30.0   # "final moments before a breach" cue
 
+# ---------------------------------------------------------------- island generation (milestone 3)
+var island_cells := 150              # grid cells per side
+var island_cell_size := 2.0          # metres per cell -> 300 m square, island ~250 m across
+var island_cliff_step := 1.6         # max walkable height change between neighbouring cells (~39 deg)
+var island_max_attempts := 16        # bounded retries before surfacing a failure
+var island_min_biome_share := 0.04   # grassland, forest, mountains and swamp must each cover this much land
+var carry_speed := 2.5               # battery carrier (no sprint, no climb) — used for route checks
+var route_budget_frac := 0.85        # crash->battery (walk) + battery->radio (carry) must fit in this share of day+dusk
+var alt_route_max_overlap := 0.45    # second radio approach may share at most this fraction with the first
+var alt_route_max_cost := 1.8        # ...and cost at most this multiple of the first
+var biome_cost := {                  # travel cost multipliers (1 = open grass)
+	"coast": 1.05, "grassland": 1.0, "forest": 1.3, "mountains": 1.45, "swamp": 2.2,
+}
+
 # ---------------------------------------------------------------- creatures: night-one baseline per type
 var creature_types := {
 	"stalker": {

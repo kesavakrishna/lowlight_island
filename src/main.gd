@@ -16,6 +16,8 @@ extends Node
 const Menu = preload("res://src/ui/main_menu.gd")
 const MatchScript = preload("res://src/match/match.gd")
 const D = preload("res://src/core/defs.gd")
+const IslandGen = preload("res://src/worldgen/island_gen.gd")
+const Preview = preload("res://src/worldgen/preview.gd")
 
 var menu: Control = null
 var match_node: Node = null
@@ -24,6 +26,9 @@ var opts: Dictionary = {}
 
 func _ready() -> void:
 	_parse_args()
+	if opts.has("preview-seeds"):
+		_preview_seeds()
+		return
 	Net.match_begin.connect(_on_match_begin)
 	Net.returned_to_lobby.connect(_on_returned)
 	Net.left_session.connect(_on_left)
@@ -132,3 +137,41 @@ func _screenshot() -> void:
 	print("[main] screenshot saved ", opts["screenshot"])
 	if not opts.has("quit-after"):
 		get_tree().quit()
+
+
+## Dev tool: --preview-seeds=1-12 [--out=DIR] writes one PNG per seed plus a contact sheet
+## and prints each island's route times, biome shares and any rejected attempts.
+func _preview_seeds() -> void:
+	var spec := str(opts["preview-seeds"])
+	var seeds: Array[int] = []
+	for part in spec.split(","):
+		if part.contains("-"):
+			var ab := part.split("-")
+			for s in range(int(ab[0]), int(ab[1]) + 1):
+				seeds.append(s)
+		else:
+			seeds.append(int(part))
+	var out := str(opts.get("out", "user://previews"))
+	DirAccess.make_dir_recursive_absolute(out)
+	var images: Array = []
+	var ok := 0
+	var t0 := Time.get_ticks_msec()
+	for s in seeds:
+		var gen := IslandGen.new()
+		var good := gen.generate(s)
+		for line in gen.log_lines:
+			print("  ", line)
+		if good:
+			ok += 1
+			print(gen.summary())
+			var img := Preview.render(gen, 3)
+			img.save_png("%s/seed_%d.png" % [out, s])
+			images.append(img)
+		else:
+			print("seed %d FAILED: %s" % [s, gen.reject_reason])
+			var blank := Image.create(Tuning.island_cells * 3, Tuning.island_cells * 3, false, Image.FORMAT_RGB8)
+			blank.fill(Color(0.15, 0.02, 0.02))
+			images.append(blank)
+	Preview.contact_sheet(images, 4).save_png("%s/contact_sheet.png" % out)
+	print("previews: %d/%d seeds accepted in %.1fs -> %s" % [ok, seeds.size(), (Time.get_ticks_msec() - t0) / 1000.0, ProjectSettings.globalize_path(out)])
+	get_tree().quit(0 if ok == seeds.size() else 1)
