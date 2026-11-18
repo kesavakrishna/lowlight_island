@@ -7,6 +7,7 @@ extends Node3D
 const D = preload("res://src/core/defs.gd")
 const Geo = preload("res://src/world/geo.gd")
 const WalkGrid = preload("res://src/world/walk_grid.gd")
+const CaveBuilder = preload("res://src/world/cave_builder.gd")
 
 const PLAY_RADIUS := 30.0
 
@@ -19,11 +20,8 @@ var patrol_points: Array[Vector3] = []
 var spawn_points: Array[Vector3] = []
 var interactables: Array[Dictionary] = []
 var burrow_pos := Vector3(24, 0, -6)
-var cave := {}
-
-var _door_pivot: Node3D
-var _door_body: StaticBody3D
-var _door_vis := {}
+var caves: Array[Dictionary] = []
+var cave := {}                          # caves[0], kept for convenience in tests and tools
 var _headless := false
 
 # Materials
@@ -80,16 +78,22 @@ func build(_seed_value: int) -> void:
 		hide_spots.append(t["pos"] + Vector3(1.0, 0, 0))
 		if t["rope"]:
 			hide_spots.append(t["rope_land"])
-	hide_spots.append(cave["door_point"])
+	for c in caves:
+		hide_spots.append(c["door_point"])
 
 
 # ------------------------------------------------------------------ queries
 
+func ground_y(_p: Vector3) -> float:
+	return 0.0
+
+
 func cover_at(p: Vector3) -> String:
-	if p.y > 2.5:
+	var above := p.y - ground_y(p)
+	if above > 2.5:
 		for t in trees:
 			var h := Vector2(p.x - t["pos"].x, p.z - t["pos"].z).length()
-			if h < 2.5 and p.y > t["canopy_h"] - 1.0:
+			if h < 2.5 and p.y - t["pos"].y > t["canopy_h"] - 1.0:
 				return "canopy"
 		return ""
 	for g in grass:
@@ -101,11 +105,16 @@ func cover_at(p: Vector3) -> String:
 	return ""
 
 
+## Id of the cave containing p, or -1.
+func cave_at(p: Vector3) -> int:
+	for c in caves:
+		if CaveBuilder.contains(c, p):
+			return c["id"]
+	return -1
+
+
 func in_cave(p: Vector3) -> bool:
-	var a: Rect2 = cave["interior"]
-	var t: Rect2 = cave["tunnel"]
-	var xz := Vector2(p.x, p.z)
-	return a.has_point(xz) or t.has_point(xz)
+	return cave_at(p) >= 0
 
 
 func deck_tree_at(p: Vector3) -> int:
@@ -113,7 +122,7 @@ func deck_tree_at(p: Vector3) -> int:
 		if not t["deck"]:
 			continue
 		var d := Vector2(p.x - t["pos"].x, p.z - t["pos"].z)
-		if absf(d.x) <= t["deck_half"] + 0.3 and absf(d.y) <= t["deck_half"] + 0.3 and p.y > t["deck_h"] - 0.4:
+		if absf(d.x) <= t["deck_half"] + 0.3 and absf(d.y) <= t["deck_half"] + 0.3 and p.y - t["pos"].y > t["deck_h"] - 0.4:
 			return t["id"]
 	return -1
 
@@ -134,27 +143,16 @@ func trees_near(p: Vector3, r: float) -> Array:
 
 # ------------------------------------------------------------------ door state (driven by match)
 
-func set_door(open: bool, hp: float) -> void:
-	var broken := hp <= 0.0
-	var damaged := hp < Tuning.door_damaged_below
-	cave["door_open"] = open
-	cave["door_hp"] = hp
-	var blocks := not open and not broken
-	_door_body.collision_layer = (D.L_WORLD | D.L_SIGHT) if blocks else 0
-	_door_pivot.rotation.y = 0.0 if (blocks or broken) else deg_to_rad(-100.0)
-	_door_vis["intact"].visible = not broken and not damaged
-	_door_vis["damaged"].visible = not broken and damaged
-	_door_vis["broken"].visible = broken
-	for c in cave["door_cells"]:
-		grid.set_solid(c, blocks)
+func set_door(open: bool, hp: float, id: int = 0) -> void:
+	CaveBuilder.apply_door(caves[id], grid, open, hp)
 
 
-func door_blocks() -> bool:
-	return not cave["door_open"] and cave["door_hp"] > 0.0
+func door_blocks(id: int = 0) -> bool:
+	return id >= 0 and id < caves.size() and CaveBuilder.door_blocks(caves[id])
 
 
-func door_body() -> StaticBody3D:
-	return _door_body
+func door_body(id: int = 0) -> StaticBody3D:
+	return caves[id]["door_body"]
 
 
 # ------------------------------------------------------------------ builders
@@ -232,87 +230,10 @@ func _build_crash() -> void:
 
 
 func _build_cave() -> void:
-	var root := Node3D.new()
-	root.name = "Cave"
-	add_child(root)
-	var pad := 0.2
-	var walls := [
-		# [min_x, max_x, min_z, max_z, min_y, max_y]
-		[-1.0, 9.0, -29.0, -27.0, 0.0, 3.6],      # back
-		[-1.0, 1.0, -27.0, -26.5, 0.0, 3.6],      # west, behind tunnel
-		[-1.0, 1.0, -25.5, -20.0, 0.0, 3.6],      # west, front of tunnel
-		[-1.0, 1.0, -26.5, -25.5, 0.8, 3.6],      # tunnel lintel
-		[7.0, 9.0, -27.0, -20.0, 0.0, 3.6],       # east
-		[1.0, 3.0, -21.0, -20.0, 0.0, 3.6],       # front left
-		[5.0, 7.0, -21.0, -20.0, 0.0, 3.6],       # front right
-		[3.0, 5.0, -21.0, -20.0, 2.2, 3.6],       # lintel over door
-		[-1.0, 9.0, -29.0, -20.0, 2.6, 3.6],      # roof
-	]
-	for w in walls:
-		var size := Vector3(w[1] - w[0], w[5] - w[4], w[3] - w[2])
-		var center := Vector3((w[0] + w[1]) * 0.5, (w[4] + w[5]) * 0.5, (w[2] + w[3]) * 0.5)
-		Geo.box(root, size, center, m_rock_dark)
-		if w[4] < 0.5:
-			grid.block_rect(Vector2(w[0], w[2]), Vector2(w[1], w[3]), pad)
-	# Crawl tunnel stays solid for creatures: it is too narrow for them.
-	grid.block_rect(Vector2(-1.0, -26.5), Vector2(1.0, -25.5), 0.1)
-	# Outcrop dressing so the cave reads as rock, not a box.
-	var rocks := [
-		[Vector3(4, 3.9, -24.5), Vector3(11.5, 1.4, 10.0), 0.05],
-		[Vector3(1.0, 4.6, -26.0), Vector3(5.0, 1.8, 6.0), 0.4],
-		[Vector3(7.5, 4.3, -23.0), Vector3(4.0, 1.6, 5.0), -0.3],
-		[Vector3(10.2, 1.6, -24.0), Vector3(2.5, 3.2, 7.0), 0.15],
-		[Vector3(4.0, 1.8, -30.0), Vector3(12.0, 3.6, 2.4), 0.0],
-		[Vector3(-2.2, 1.5, -22.0), Vector3(2.0, 3.0, 4.0), 0.25],
-		[Vector3(-2.0, 1.6, -29.0), Vector3(2.4, 3.2, 3.0), -0.2],
-	]
-	for r in rocks:
-		Geo.box(root, r[1], r[0], m_rock, D.L_WORLD | D.L_SIGHT, r[2])
-		var half := Vector2(r[1].x, r[1].z) * 0.5
-		if r[0].y - r[1].y * 0.5 < 0.5:
-			grid.block_rect(Vector2(r[0].x, r[0].z) - half, Vector2(r[0].x, r[0].z) + half)
-	# Stone floor patch inside.
-	Geo.box(root, Vector3(6, 0.02, 6), Vector3(4, 0.01, -24), m_rock_dark, 0)
-	Geo.box(root, Vector3(2, 0.02, 1), Vector3(0, 0.01, -26), m_rock_dark, 0)
-
-	# Door: hinged at x=3, swings outward (+z) when open.
-	_door_pivot = Node3D.new()
-	_door_pivot.position = Vector3(3.0, 0, -20.5)
-	root.add_child(_door_pivot)
-	var shape := BoxShape3D.new()
-	shape.size = Vector3(2.0, 2.2, 0.14)
-	_door_body = Geo.static_body(_door_pivot, shape, Transform3D(Basis.IDENTITY, Vector3(1.0, 1.1, 0)), D.L_WORLD | D.L_SIGHT)
-	_door_body.name = "CaveDoor"
-	var intact := Node3D.new()
-	_door_pivot.add_child(intact)
-	Geo.box(intact, Vector3(1.96, 2.18, 0.12), Vector3(1.0, 1.1, 0), m_wood, 0)
-	Geo.box(intact, Vector3(1.96, 0.14, 0.16), Vector3(1.0, 0.5, 0.03), m_wood_dark, 0)
-	Geo.box(intact, Vector3(1.96, 0.14, 0.16), Vector3(1.0, 1.7, 0.03), m_wood_dark, 0)
-	var damaged := Node3D.new()
-	_door_pivot.add_child(damaged)
-	for i in 5:
-		var h := 2.18 - (0.35 if i % 2 == 1 else 0.0)
-		Geo.box(damaged, Vector3(0.34, h, 0.12), Vector3(0.2 + i * 0.4, h * 0.5, 0), m_wood_dark, 0, 0.0, Vector3(0, 0, (i - 2) * 0.03))
-	Geo.box(damaged, Vector3(1.96, 0.14, 0.16), Vector3(1.0, 0.5, 0.03), m_wood_dark, 0, 0.0, Vector3(0, 0, 0.06))
-	var broken := Node3D.new()
-	_door_pivot.add_child(broken)
-	for i in 6:
-		Geo.box(broken, Vector3(0.3, 0.08, 1.0 + (i % 3) * 0.3), Vector3(0.2 + i * 0.33, 0.04, 0.8 + (i % 2) * 0.5), m_wood_dark, 0, 0.4 * i)
-	_door_vis = {"intact": intact, "damaged": damaged, "broken": broken}
-
-	cave = {
-		"interior": Rect2(Vector2(1.0, -27.0), Vector2(6.0, 7.0)),   # includes the door passage
-		"tunnel": Rect2(Vector2(-1.0, -26.5), Vector2(2.0, 1.0)),
-		"door_point": Vector3(4.0, 0, -18.9),
-		"inside_point": Vector3(4.0, 0, -23.5),
-		"tunnel_exit": Vector3(-1.8, 0, -26.0),
-		"door_center": Vector3(4.0, 1.1, -20.5),
-		"door_cells": [grid.world_to_cell(Vector3(3.5, 0, -20.5)), grid.world_to_cell(Vector3(4.5, 0, -20.5))],
-		"door_open": false,
-		"door_hp": Tuning.door_hp,
-	}
-	set_door(false, Tuning.door_hp)
-	interactables.append({"id": interactables.size(), "kind": "door", "pos": Vector3(4.0, 1.1, -20.5), "label": "door"})
+	caves = [CaveBuilder.build(self, grid, 0, Vector3(4.0, 0, -20.5), 0)]
+	cave = caves[0]
+	set_door(false, Tuning.door_hp, 0)
+	interactables.append({"id": interactables.size(), "kind": "door", "pos": cave["door_center"], "cave": 0, "label": "door"})
 
 
 func _build_trees() -> void:

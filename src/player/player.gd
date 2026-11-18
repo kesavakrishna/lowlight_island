@@ -25,6 +25,7 @@ var moving := false
 var tree_id := -1
 var cover := ""
 var inside_cave := false
+var cave_id := -1
 var revive_progress := 0.0
 var downed_time := 0.0
 

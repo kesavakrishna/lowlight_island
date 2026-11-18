@@ -36,6 +36,8 @@ var tree_timer := 0.0
 var attack_cd := 0.0
 var breach_timer := 0.0
 var cave_suspicion := 0.0
+var suspect_cave := -1
+var breach_cave := 0
 var linger_timer := 0.0
 var linger_victim := -1
 var patrol_target := Vector3.INF
@@ -109,7 +111,7 @@ func go_home() -> void:
 	if state == D.CState.DORMANT:
 		return
 	climbing = false
-	global_position.y = 0.0
+	global_position.y = world.ground_y(global_position)
 	_set_state(D.CState.RETURN, "dawn: returning to the burrow")
 
 
@@ -278,9 +280,16 @@ func ray_clear(a: Vector3, b: Vector3, light_passes_damaged_door: bool = false) 
 	var hit := space.intersect_ray(q)
 	if hit.is_empty():
 		return true
-	if light_passes_damaged_door and hit["collider"] == world.door_body() and world.cave["door_hp"] < Tuning.door_damaged_below:
+	if light_passes_damaged_door and _is_damaged_door(hit["collider"]):
 		q.exclude = [hit["rid"]]
 		return space.intersect_ray(q).is_empty()
+	return false
+
+
+func _is_damaged_door(collider: Object) -> bool:
+	for c in world.caves:
+		if collider == c["door_body"]:
+			return c["door_hp"] < Tuning.door_damaged_below
 	return false
 
 
@@ -317,11 +326,15 @@ func _on_sound(ev: Dictionary, d: float, r: float) -> void:
 			if hd < 7.0:
 				_start_climb(t["id"], "branches shook overhead")
 				return
-	if ev.get("in_cave", false) and world.door_blocks():
+	var cid: int = ev.get("cave", -1)
+	if cid >= 0 and world.door_blocks(cid):
+		if cid != suspect_cave:
+			cave_suspicion = 0.0
+		suspect_cave = cid
 		cave_suspicion += 0.7 if kind == "door" else 0.4
-		var door_point: Vector3 = world.cave["door_point"]
+		var door_point: Vector3 = world.caves[cid]["door_point"]
 		if cave_suspicion >= 1.0 and global_position.distance_to(door_point) < 4.0:
-			_start_breach("heard them inside the cave")
+			_start_breach(cid, "heard them inside the cave")
 			return
 		_investigate(door_point, 0.8, "heard something inside the cave")
 		return
@@ -357,8 +370,11 @@ func _begin_search(center: Vector3, scale: float, why: String) -> void:
 	near.sort_custom(func(a: Array, b: Array) -> bool: return a[0] < b[0])
 	for i in mini(3, near.size()):
 		search_spots.append(near[i][1])
-	if world.in_cave(center):
-		search_spots = [world.cave["inside_point"], Vector3(2.0, 0, -26.0), Vector3(6.0, 0, -26.0), Vector3(1.6, 0, -26.0)]
+	var in_cid: int = world.cave_at(center + Vector3(0, 0.5, 0))
+	if in_cid >= 0:
+		search_spots.clear()
+		for sp in world.caves[in_cid]["search_spots"]:
+			search_spots.append(sp)
 	search_end = _now() + stats["search_time"] * scale
 	_set_state(D.CState.SEARCH, why)
 	match_ref.emit_cue("chitter", global_position)
@@ -385,7 +401,8 @@ func _start_climb(tree_id: int, why: String) -> void:
 	_set_state(D.CState.CLIMB, why)
 
 
-func _start_breach(why: String) -> void:
+func _start_breach(cid: int, why: String) -> void:
+	breach_cave = cid
 	cave_suspicion = 0.0
 	breach_timer = 0.6
 	_set_state(D.CState.BREACH, why)
@@ -459,8 +476,8 @@ func _st_chase(_delta: float) -> void:
 	if p.tree_id >= 0 and now - last_seen_t < 2.0:
 		_start_climb(p.tree_id, "watched %s climb" % p.display_name)
 		return
-	if p.inside_cave and world.door_blocks() and now - last_seen_t < 3.0:
-		_start_breach("saw %s shut themselves in" % p.display_name)
+	if p.cave_id >= 0 and world.door_blocks(p.cave_id) and now - last_seen_t < 3.0:
+		_start_breach(p.cave_id, "saw %s shut themselves in" % p.display_name)
 		return
 	var dist := global_position.distance_to(p.global_position)
 	if seen_recently and dist < stats["catch_range"] and absf(p.global_position.y - global_position.y) < 1.2:
@@ -486,7 +503,7 @@ func _st_climb(delta: float) -> void:
 		return
 	_face(t["pos"], delta)
 	climb_progress = minf(1.0, climb_progress + delta / stats["climb_time"])
-	global_position = Vector3(climb_base.x, climb_progress * _canopy_y(t), climb_base.z)
+	global_position = Vector3(climb_base.x, climb_base.y + climb_progress * _canopy_y(t), climb_base.z)
 	cue_timer -= delta
 	if cue_timer <= 0.0:
 		cue_timer = 0.7
@@ -528,26 +545,27 @@ func _st_tree_attack(delta: float) -> void:
 func _st_climb_down(delta: float) -> void:
 	var t: Dictionary = world.tree_by_id(commit_tree)
 	climb_progress = maxf(0.0, climb_progress - delta / (stats["climb_time"] * 0.4))
-	global_position = Vector3(climb_base.x, climb_progress * _canopy_y(t), climb_base.z)
+	global_position = Vector3(climb_base.x, climb_base.y + climb_progress * _canopy_y(t), climb_base.z)
 	if climb_progress <= 0.0:
 		climbing = false
-		global_position.y = 0.0
+		global_position.y = climb_base.y
 		_begin_search(climb_base, 0.8, "climbed down; searching around the trunk")
 
 
 func _st_breach(delta: float) -> void:
-	if not world.door_blocks():
-		_begin_search(world.cave["inside_point"], 0.8, "the door is open; checking inside")
+	var cave: Dictionary = world.caves[breach_cave]
+	if not world.door_blocks(breach_cave):
+		_begin_search(cave["inside_point"], 0.8, "the door is open; checking inside")
 		return
-	var door_point: Vector3 = world.cave["door_point"]
+	var door_point: Vector3 = cave["door_point"]
 	if not _go(door_point, stats["investigate_speed"]):
 		return
-	_face(world.cave["door_center"], delta)
+	_face(cave["door_center"], delta)
 	breach_timer -= delta
 	if breach_timer <= 0.0:
 		breach_timer = stats["door_hit_interval"]
 		reason = "breaking the cave door"
-		match_ref.damage_door(stats["door_damage"], self)
+		match_ref.damage_door(stats["door_damage"], breach_cave, self)
 
 
 func _st_linger(delta: float) -> void:

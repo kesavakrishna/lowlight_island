@@ -171,7 +171,7 @@ func test_cave_breach_damages_then_breaks_door(r: Node) -> void:
 	check(p.inside_cave, "player is inside the cave")
 	check(m.world.door_blocks(), "door starts closed")
 	c.global_position = m.world.cave["door_point"] + Vector3(0, 0, 1.5)
-	c._start_breach("test")
+	c._start_breach(0, "test")
 	var saw_damaged := false
 	var broke := false
 	for i in 60 * 20:

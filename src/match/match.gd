@@ -401,10 +401,11 @@ func _srv_post_step(p: Node, delta: float) -> void:
 			p.downed_time += delta
 	var pos: Vector3 = p.global_position
 	p.cover = "" if p.mode == D.Mode.CLIMBING else world.cover_at(pos)
-	p.inside_cave = world.in_cave(pos) and pos.y < 2.5
+	p.cave_id = world.cave_at(pos)
+	p.inside_cave = p.cave_id >= 0
 	if p.mode == D.Mode.NORMAL:
 		p.tree_id = world.deck_tree_at(pos)
-	if pos.y < -10.0:
+	if pos.y < world.ground_y(pos) - 10.0:
 		p.global_position = world.spawn_points[0]  # safety net, never lose an avatar
 	# Movement noise heard by creatures.
 	if (p.mode == D.Mode.NORMAL or p.mode == D.Mode.DOWNED) and p.moving:
@@ -437,9 +438,10 @@ func _srv_post_step(p: Node, delta: float) -> void:
 
 func emit_sound(pos: Vector3, radius: float, kind: String, extra: Dictionary = {}) -> void:
 	var ev := {"pos": pos, "radius": radius, "kind": kind}
-	var inside: bool = world.in_cave(pos) and pos.y < 2.5
-	ev["in_cave"] = inside
-	ev["muffled"] = inside and world.door_blocks()
+	var cid: int = world.cave_at(pos)
+	ev["in_cave"] = cid >= 0
+	ev["cave"] = cid
+	ev["muffled"] = cid >= 0 and world.door_blocks(cid)
 	ev.merge(extra)
 	sound_events.append(ev)
 
@@ -495,10 +497,10 @@ func interact_candidates(p: Node) -> Array:
 	for it in world.interactables:
 		match it["kind"]:
 			"climb":
-				if p.global_position.y < 1.5:
+				if p.global_position.y - world.ground_y(p.global_position) < 1.5:
 					out.append(it)
 			"door":
-				if world.cave["door_hp"] > 0.0:
+				if world.caves[it["cave"]]["door_hp"] > 0.0:
 					out.append(it)
 			"deck_down", "rope":
 				if p.tree_id == it["tree"]:
@@ -554,7 +556,7 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 		"climb":
 			_srv_start_climb(p, world.tree_by_id(it["tree"]))
 		"door":
-			_srv_toggle_door(p)
+			_srv_toggle_door(p, it["cave"])
 		"deck_down":
 			var t: Dictionary = world.tree_by_id(it["tree"])
 			var dur := Tuning.climb_ladder_time if t["ladder"] else Tuning.climb_down_time * 1.4
@@ -571,26 +573,28 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 				_rpc_event.rpc("nm_remove", Vector3.ZERO, {"id": id})
 
 
-func _srv_toggle_door(p: Node) -> void:
-	var hp: float = world.cave["door_hp"]
+func _srv_toggle_door(p: Node, cid: int) -> void:
+	var cave: Dictionary = world.caves[cid]
+	var hp: float = cave["door_hp"]
 	if hp <= 0.0:
 		return
-	var open: bool = not world.cave["door_open"]
+	var open: bool = not cave["door_open"]
 	if not open:
-		var dc: Vector3 = world.cave["door_center"]
+		var dc: Vector3 = cave["door_center"]
 		for q in players.values():
 			if Vector2(q.global_position.x - dc.x, q.global_position.z - dc.z).length() < 0.55:
 				notify(p, "Someone is standing in the doorway.")
 				return
-	world.set_door(open, hp)
-	emit_sound(world.cave["door_center"], Tuning.noise_door, "door")
-	emit_cue("door", world.cave["door_center"])
+	world.set_door(open, hp, cid)
+	emit_sound(cave["door_center"], Tuning.noise_door, "door")
+	emit_cue("door", cave["door_center"])
 
 
-func damage_door(amount: float, _by: Node) -> void:
-	var hp: float = maxf(0.0, world.cave["door_hp"] - amount)
-	world.set_door(world.cave["door_open"], hp)
-	var dc: Vector3 = world.cave["door_center"]
+func damage_door(amount: float, cid: int, _by: Node) -> void:
+	var cave: Dictionary = world.caves[cid]
+	var hp: float = maxf(0.0, cave["door_hp"] - amount)
+	world.set_door(cave["door_open"], hp, cid)
+	var dc: Vector3 = cave["door_center"]
 	emit_cue("door_hit", dc, {"hp": hp})
 	if hp <= 0.0:
 		emit_cue("door_break", dc)
@@ -621,7 +625,7 @@ func _anchor(t: Dictionary, which: String, dir: Vector3) -> Vector3:
 
 
 func _srv_start_climb(p: Node, t: Dictionary) -> void:
-	if t.is_empty() or p.mode != D.Mode.NORMAL or p.global_position.y > 1.5:
+	if t.is_empty() or p.mode != D.Mode.NORMAL or p.global_position.y - t["pos"].y > 1.5:
 		return
 	var dir := _dir_from_trunk(t, p.global_position)
 	if t["ladder"]:
@@ -917,7 +921,7 @@ func _send_snapshot() -> void:
 		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake])
 	var snap := {
 		"t": match_time, "ph": phase, "pt": phase_time, "d": day_index, "n": nights_survived,
-		"p": ps, "c": cs, "door": [world.cave["door_open"], world.cave["door_hp"]],
+		"p": ps, "c": cs, "doors": _door_states(),
 	}
 	if _snap_count % 10 == 0:
 		var dbg := {}
@@ -925,6 +929,13 @@ func _send_snapshot() -> void:
 			dbg[c.cid] = c.debug_text
 		snap["dbg"] = dbg
 	_rpc_snapshot.rpc(snap)
+
+
+func _door_states() -> Array:
+	var out: Array = []
+	for c in world.caves:
+		out.append([c["door_open"], c["door_hp"]])
+	return out
 
 
 @rpc("authority", "unreliable_ordered")
@@ -956,6 +967,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.perch = e[12]
 		p.sprinting = (flags & 2) != 0
 		p.inside_cave = (flags & 8) != 0
+		p.cave_id = world.cave_at(p.global_position) if p.inside_cave else -1
 		p.cover = "grass" if flags & 16 else ("bush" if flags & 32 else ("canopy" if flags & 64 else ""))
 		p.apply_remote_snapshot(s["t"], e[1], e[2], e[3])
 		if p.is_local:
@@ -981,9 +993,11 @@ func _rpc_snapshot(s: Dictionary) -> void:
 			c.snaps.clear()
 			c.global_position = e[1]
 		c.apply_remote_snapshot(s["t"], e[1], e[2])
-	var door: Array = s["door"]
-	if door[0] != world.cave["door_open"] or absf(door[1] - world.cave["door_hp"]) > 0.01:
-		world.set_door(door[0], door[1])
+	var doors: Array = s["doors"]
+	for i in mini(doors.size(), world.caves.size()):
+		var cv: Dictionary = world.caves[i]
+		if doors[i][0] != cv["door_open"] or absf(doors[i][1] - cv["door_hp"]) > 0.01:
+			world.set_door(doors[i][0], doors[i][1], i)
 	if s.has("dbg"):
 		for k in s["dbg"]:
 			if creatures.has(k):
@@ -1116,7 +1130,7 @@ func prompt_text() -> String:
 				"rough": return "[E] Climb the rough trunk (stamina)"
 				"bare": return "[E] Grab the bare trunk"
 		"door":
-			return "[E] Open the door" if not world.cave["door_open"] else "[E] Close the door"
+			return "[E] Open the door" if not world.caves[it["cave"]]["door_open"] else "[E] Close the door"
 		"deck_down":
 			return "[E] Climb down the trunk"
 		"rope":
