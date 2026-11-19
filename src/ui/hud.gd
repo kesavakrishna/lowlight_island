@@ -41,6 +41,7 @@ var _note_t := 0.0
 var hints: Control
 var _captions: VBoxContainer
 var _how: Control
+var _feedback: LineEdit
 var _nerve_veil: TextureRect
 var _nerve_label: Label
 
@@ -163,6 +164,22 @@ func _ready() -> void:
 	_captions.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_captions)
 	_build_map(root)
+	_feedback = LineEdit.new()
+	_feedback.placeholder_text = "Playtest note (Enter to save, Esc to cancel)"
+	_feedback.anchor_left = 0.5
+	_feedback.anchor_right = 0.5
+	_feedback.anchor_top = 0.0
+	_feedback.offset_left = -300.0
+	_feedback.offset_right = 300.0
+	_feedback.offset_top = 120.0
+	_feedback.offset_bottom = 156.0
+	_feedback.visible = false
+	_feedback.text_submitted.connect(func(t: String) -> void:
+		if t.strip_edges() != "":
+			match_ref.save_feedback(t)
+			notice("Note saved to user://feedback.log")
+		_close_feedback())
+	root.add_child(_feedback)
 	_note_panel = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.86, 0.82, 0.7, 0.94)
@@ -408,7 +425,25 @@ func _build_results(root: Control) -> void:
 	_results.visible = false
 
 
+func _close_feedback() -> void:
+	_feedback.visible = false
+	_feedback.text = ""
+	if not _pause.visible and not _results.visible:
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if _feedback.visible:
+		if event.is_action_pressed("pause"):
+			_close_feedback()
+			get_viewport().set_input_as_handled()
+		return
+	if event.is_action_pressed("feedback"):
+		_feedback.visible = true
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		_feedback.grab_focus()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("map"):
 		if match_ref and _ensure_map_texture():
 			_map.visible = not _map.visible
@@ -554,6 +589,20 @@ func show_results(summary: Dictionary) -> void:
 		lines.append("The island keeps its secrets - for now.")
 	info.text = "\n".join(lines)
 	box.add_child(info)
+	# The playtest question from the brief: what would you do differently?
+	var q := Label.new()
+	q.text = "What would you do differently next time?"
+	box.add_child(q)
+	var answer := LineEdit.new()
+	answer.placeholder_text = "e.g. take the dry bank, build the ladder early, leave the battery under cover before dark"
+	answer.custom_minimum_size = Vector2(520, 0)
+	box.add_child(answer)
+	var save := Button.new()
+	save.text = "Save answer with this run's report"
+	save.pressed.connect(func() -> void:
+		match_ref.save_answer(answer.text)
+		save.text = "Saved (user://runs)")
+	box.add_child(save)
 	if Net.is_host:
 		var b := Button.new()
 		b.text = "Back to lobby (rematch)"

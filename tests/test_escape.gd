@@ -213,3 +213,19 @@ func test_wood_and_door_repair(r: Node) -> void:
 	check(absf(m.world.caves[0]["door_hp"] - (50.0 + Tuning.repair_hp)) < 0.01, "repair restores the door (%.0f)" % m.world.caves[0]["door_hp"])
 	check(p.wood == Tuning.wood_take - Tuning.repair_cost, "repair costs wood")
 	m.free()
+
+
+func test_run_report_written(r: Node) -> void:
+	var m := _make(r, D.Phase.NIGHT)
+	m.reports_enabled = true
+	await _wait(r, 0.1)
+	m.down_player(m.local_player, null)
+	await _wait(r, 0.2)
+	check(m.over and m.last_report_path != "" and FileAccess.file_exists(m.last_report_path), "a run report is saved at the end")
+	var data = JSON.parse_string(FileAccess.get_file_as_string(m.last_report_path))
+	check(typeof(data) == TYPE_DICTIONARY and data["stats"]["downs"] == 1 and data["stats"]["seed"] == SEED, "the report records what happened")
+	m.save_answer("build the ladder early")
+	data = JSON.parse_string(FileAccess.get_file_as_string(m.last_report_path))
+	check(data["answer"] == "build the ladder early", "the post-run answer is saved with it")
+	DirAccess.remove_absolute(m.last_report_path)
+	m.free()

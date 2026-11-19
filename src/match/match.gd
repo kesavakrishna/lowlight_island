@@ -53,6 +53,8 @@ var _new_type_tonight := false
 var captives: Dictionary = {}        # host: burrow index -> [peer ids]
 var raid_progress: Dictionary = {}   # burrow index -> 0..1
 var _shove_cd: Dictionary = {}
+# Playtest record of this run (host), sent with the results and saved by every peer.
+var run_stats := {"downs": 0, "captures": 0, "freed": 0, "revives": 0, "shoves": 0, "collapses": 0, "timeline": []}
 
 # ---- items (noisemakers): id -> {pos, vel, landed, pulses, timer, idle, flight, node}
 var noisemakers: Dictionary = {}
@@ -70,6 +72,49 @@ var _bot_t := 0.0
 var _bot_yaw0 := 0.0
 var _spawn_pos := Vector3.ZERO
 var _client_raids: Dictionary = {}
+var last_report_path := ""
+var reports_enabled := false     # headless runs (tests, soak) skip reports unless asked
+
+
+## Every peer keeps a JSON record of each run for playtest notes (user://runs/).
+func save_run_report(summary: Dictionary) -> String:
+	DirAccess.make_dir_recursive_absolute("user://runs")
+	var stamp := Time.get_datetime_string_from_system().replace(":", "-")
+	var path := "user://runs/%s_seed%d.json" % [stamp, int(params.get("seed", 0))]
+	var report := summary.duplicate(true)
+	report["player"] = local_player.display_name if local_player else "?"
+	report["answer"] = ""
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(report, "  "))
+		f.close()
+	return path
+
+
+## Adds the player's "what would you do differently?" answer to this run's report.
+func save_answer(text: String) -> void:
+	if last_report_path == "" or not FileAccess.file_exists(last_report_path):
+		return
+	var data = JSON.parse_string(FileAccess.get_file_as_string(last_report_path))
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	data["answer"] = text
+	var f := FileAccess.open(last_report_path, FileAccess.WRITE)
+	f.store_string(JSON.stringify(data, "  "))
+	f.close()
+
+
+## F8: a quick playtest note with where and when it happened.
+func save_feedback(text: String) -> void:
+	var path := "user://feedback.log"
+	var f := FileAccess.open(path, FileAccess.READ_WRITE) if FileAccess.file_exists(path) else FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return
+	f.seek_end()
+	var pos: Vector3 = local_player.global_position if local_player else Vector3.ZERO
+	f.store_line("%s  seed=%d day=%d %s t=%.0f pos=%s  %s" % [Time.get_datetime_string_from_system(), int(params.get("seed", 0)),
+		day_index, D.PHASE_NAMES[phase], match_time, pos.snapped(Vector3.ONE * 0.1), text.replace("\n", " ")])
+	f.close()
 var smoke := {"snapshots": 0, "inputs": 0, "max_err": 0.0, "max_players": 0, "remote_moved": 0.0}
 
 
@@ -1073,7 +1118,22 @@ func end_match(won: bool) -> void:
 	var crew: Array = []
 	for p in players.values():
 		crew.append([p.display_name, p.mode == D.Mode.ESCAPED])
-	var summary := {"won": won, "nights": nights_survived, "day": day_index, "crew": crew}
+	var stats := run_stats.duplicate(true)
+	stats["seed"] = int(params.get("seed", 0))
+	stats["attempt"] = int(params.get("attempt", -1))
+	stats["world"] = params.get("world", "clearing")
+	stats["minutes"] = snappedf(match_time / 60.0, 0.1)
+	stats["structures"] = building.builds.keys()
+	stats["notes_read"] = expedition.notes_read.count(true) if expedition.enabled else 0
+	var met := {}
+	for c in creatures.values():
+		if c.stats.get("chase_speed", 0.0) > 0.0 and (c.awake or not c.mind.scars.is_empty() or c.state != D.CState.DORMANT):
+			met[c.ctype] = true
+	stats["creature_types_met"] = met.keys()
+	stats["creatures"] = []
+	for c in creatures.values():
+		stats["creatures"].append({"type": c.ctype, "traits": c.mind.traits_text(), "scars": c.mind.scars, "learned": c.mind.counters_text()})
+	var summary := {"won": won, "nights": nights_survived, "day": day_index, "crew": crew, "stats": stats}
 	_rpc_game_over(summary)
 	for pid in _ready_peers():
 		_rpc_game_over.rpc_id(pid, summary)
@@ -1082,6 +1142,8 @@ func end_match(won: bool) -> void:
 @rpc("authority", "call_local", "reliable")
 func _rpc_game_over(summary: Dictionary) -> void:
 	over = true
+	if reports_enabled or not headless:
+		last_report_path = save_run_report(summary)
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if hud:
 		hud.show_results(summary)
@@ -1673,9 +1735,22 @@ func _rpc_client_ready() -> void:
 		_ready_set[multiplayer.get_remote_sender_id()] = true
 
 
+const TIMELINE_EVENTS := ["found", "battery_pick", "radio_powered", "broadcast_done", "boat_arrived", "boat_left",
+	"boarded", "part_fitted", "engine_start", "skiff_ready", "threshold", "new_tracks", "captured", "freed"]
+
+
 func emit_cue(kind: String, pos: Vector3, data: Dictionary = {}) -> void:
 	if is_server:
 		_nerve_shock(kind, pos, data)
+		match kind:
+			"down": run_stats["downs"] += 1
+			"captured": run_stats["captures"] += 1
+			"freed": run_stats["freed"] += 1
+			"revived": run_stats["revives"] += 1
+			"shove": run_stats["shoves"] += 1
+			"collapse": run_stats["collapses"] += 1
+		if kind in TIMELINE_EVENTS:
+			run_stats["timeline"].append([snappedf(match_time, 0.1), day_index, D.PHASE_NAMES[phase], kind, data.get("name", data.get("what", ""))])
 		_broadcast_event(kind, pos, data)
 
 

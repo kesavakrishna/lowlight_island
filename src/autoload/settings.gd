@@ -106,6 +106,7 @@ func _setup_input() -> void:
 		InputMap.action_add_event("shove", mb)
 	_key("debug_overlay", [KEY_F3])
 	_key("dev_skip_phase", [KEY_F6])
+	_key("feedback", [KEY_F8])
 	_key("pause", [KEY_ESCAPE])
 
 
