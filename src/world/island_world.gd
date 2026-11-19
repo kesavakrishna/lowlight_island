@@ -582,3 +582,10 @@ func _facing_open(p: Vector3) -> float:
 			best_score = score
 			best = a
 	return best
+
+
+## "soil" carries vibration; "rock" (mountains, cave floors) and anything up a tree don't.
+func ground_kind(p: Vector3) -> String:
+	if cave_at(p) >= 0 or p.y - ground_y(p) > 1.0:
+		return "rock"
+	return "rock" if gen.biome_at(p) == IslandGen.Biome.MOUNTAIN else "soil"

@@ -63,6 +63,15 @@ func _setup_input() -> void:
 	_key("drop", [KEY_Q])
 	_key("repair", [KEY_V])
 	_key("map", [KEY_M])
+	_key("lean_left", [KEY_1])
+	_key("lean_right", [KEY_3])
+	_key("ping", [KEY_X])
+	_key("rest", [KEY_H])
+	if not InputMap.has_action("shove"):
+		InputMap.add_action("shove")
+		var mb := InputEventMouseButton.new()
+		mb.button_index = MOUSE_BUTTON_LEFT
+		InputMap.action_add_event("shove", mb)
 	_key("debug_overlay", [KEY_F3])
 	_key("dev_skip_phase", [KEY_F6])
 	_key("pause", [KEY_ESCAPE])

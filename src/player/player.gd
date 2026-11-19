@@ -31,6 +31,9 @@ var carrying := false            # the radio battery: no sprint, no climb, no pr
 var away := false                # connection dropped; the avatar waits for a reconnect
 var grace := 0.0
 var wood := 0
+var nerve := 100.0               # host-owned; each client hallucinates only from its own value
+var dragged_by := -1             # creature id dragging this downed player
+var lean := 0.0                  # -1 left .. 1 right (peeking)
 var last_dry := Vector3.ZERO
 var revive_progress := 0.0
 var downed_time := 0.0
@@ -200,6 +203,13 @@ func eye_position() -> Vector3:
 	return global_position + Vector3(0, eye_height(), 0)
 
 
+## Sideways head offset from leaning; creatures see the exposure points move with it.
+func lean_offset() -> Vector3:
+	if absf(lean) < 0.01:
+		return Vector3.ZERO
+	return Vector3(cos(yaw), 0, -sin(yaw)) * lean * 0.45
+
+
 func look_dir() -> Vector3:
 	return Basis.from_euler(Vector3(pitch, yaw, 0)) * Vector3.FORWARD
 
@@ -226,7 +236,7 @@ func try_set_stance(s: int) -> void:
 func simulate(inp: Dictionary, delta: float) -> void:
 	yaw = inp.get("yaw", yaw)
 	pitch = inp.get("pitch", pitch)
-	if mode == D.Mode.CLIMBING or mode == D.Mode.PERCHED or mode == D.Mode.ESCAPED:
+	if mode == D.Mode.CLIMBING or mode == D.Mode.PERCHED or mode == D.Mode.ESCAPED or mode == D.Mode.CAPTURED or dragged_by >= 0:
 		velocity = Vector3.ZERO
 		return
 	var want: int = inp.get("stance", D.Stance.STAND)
@@ -348,7 +358,7 @@ func _process(delta: float) -> void:
 	visual_offset = visual_offset.lerp(Vector3.ZERO, clampf(delta * 10.0, 0.0, 1.0))
 	visual.position = visual_offset
 	visual.rotation.y = yaw
-	var gone := mode == D.Mode.ESCAPED
+	var gone := mode == D.Mode.ESCAPED or mode == D.Mode.CAPTURED
 	visual.visible = not gone
 	collider.disabled = gone
 	var target_eye := eye_height()

@@ -121,26 +121,91 @@ var rebuild_cost := 3
 var rebuild_hp := 60.0
 
 # ---------------------------------------------------------------- creatures: night-one baseline per type
+# Every type shares the behavior core; these values and flags make them hunt differently.
+#   sight / light:   uses eyes at all / is drawn to light sources
+#   soft_only:       hears movement only through soil (not rock, cave floors or trees)
+#   feel_range:      senses any moving player this close through the ground (blind hunters)
+#   can_climb, burrows (travels underground), canopy_check (inspects trees with someone in them)
 var creature_types := {
-	"stalker": {
-		"patrol_speed": 2.0,
-		"investigate_speed": 3.0,
-		"chase_speed": 5.0,           # hard-capped below sprint_speed, see creature_stats()
-		"sight_range_day": 40.0,
-		"sight_range_dark": 13.0,     # unlit player at night
-		"lit_sight_range": 32.0,      # player carrying an open lantern
-		"light_sight_range": 45.0,    # how far it notices a light source itself
-		"fov_deg": 140.0,
-		"hearing_mult": 0.6,          # weak hearing
-		"awareness_rate": 2.2,        # per second at full visibility
-		"climb_time": 8.0,
-		"door_damage": 14.0,
-		"door_hit_interval": 1.4,
-		"search_time": 22.0,
-		"catch_range": 1.35,
-		"eye_height": 2.0,
+	"stalker": {   # hunts by sight; drawn to light and movement; fast pursuit; weak hearing
+		"sight": true, "light": true, "soft_only": false, "feel_range": 0.0,
+		"can_climb": true, "burrows": false, "canopy_check": false, "tree_sense": 7.0,
+		"patrol_speed": 2.0, "investigate_speed": 3.0, "chase_speed": 5.0,
+		"sight_range_day": 40.0, "sight_range_dark": 13.0, "lit_sight_range": 32.0, "light_sight_range": 45.0,
+		"fov_deg": 140.0, "hearing_mult": 0.6, "awareness_rate": 2.2,
+		"climb_time": 8.0, "tree_attack_cd": 1.5, "door_damage": 14.0, "door_hit_interval": 1.4,
+		"search_time": 22.0, "catch_range": 1.35, "eye_height": 2.0,
+	},
+	"listener": {  # blind; acute hearing and ground-feel; ignores light entirely
+		"sight": false, "light": false, "soft_only": false, "feel_range": 4.0,
+		"can_climb": true, "burrows": false, "canopy_check": false, "tree_sense": 9.0,
+		"patrol_speed": 1.8, "investigate_speed": 2.6, "chase_speed": 4.6,
+		"sight_range_day": 0.0, "sight_range_dark": 0.0, "lit_sight_range": 0.0, "light_sight_range": 0.0,
+		"fov_deg": 360.0, "hearing_mult": 1.6, "awareness_rate": 1.0,
+		"climb_time": 9.0, "tree_attack_cd": 1.6, "door_damage": 12.0, "door_hit_interval": 1.5,
+		"search_time": 26.0, "catch_range": 1.4, "eye_height": 1.4,
+	},
+	"digger": {    # feels vibration through soft ground, surfaces from below, cannot climb
+		"sight": true, "light": true, "soft_only": true, "feel_range": 0.0,
+		"can_climb": false, "burrows": true, "canopy_check": false, "tree_sense": 0.0,
+		"patrol_speed": 2.2, "investigate_speed": 3.4, "chase_speed": 4.8,
+		"sight_range_day": 18.0, "sight_range_dark": 7.0, "lit_sight_range": 16.0, "light_sight_range": 22.0,
+		"fov_deg": 160.0, "hearing_mult": 1.3, "awareness_rate": 2.0,
+		"climb_time": 99.0, "tree_attack_cd": 2.0, "door_damage": 18.0, "door_hit_interval": 1.3,
+		"search_time": 24.0, "catch_range": 1.4, "eye_height": 1.1,
+	},
+	"climber": {   # slower on the ground; climbs trunks fast and shakes platforms
+		"sight": true, "light": true, "soft_only": false, "feel_range": 0.0,
+		"can_climb": true, "burrows": false, "canopy_check": true, "tree_sense": 12.0,
+		"patrol_speed": 1.6, "investigate_speed": 2.4, "chase_speed": 4.2,
+		"sight_range_day": 34.0, "sight_range_dark": 12.0, "lit_sight_range": 28.0, "light_sight_range": 40.0,
+		"fov_deg": 150.0, "hearing_mult": 0.9, "awareness_rate": 2.0,
+		"climb_time": 3.5, "tree_attack_cd": 0.9, "door_damage": 11.0, "door_hit_interval": 1.6,
+		"search_time": 22.0, "catch_range": 1.35, "eye_height": 1.8,
 	},
 }
+
+# ---------------------------------------------------------------- creature memory, personality, tricks (milestone 5)
+var max_counters := 3                # learned counters one individual can hold
+var counter_fade_nights := 2         # an unreinforced counter weakens after this many nights
+var grudge_threshold := 3.0          # grudge score that makes a player the preferred target
+var trick_feint_night := 3           # feigned retreat unlocks
+var trick_flush_night := 4           # one drives you out, another holds the exit
+var trick_freeze_night := 5          # freezing still near a shelter it suspects
+var shove_stamina := 55.0            # shove costs most of your stamina
+var shove_cooldown := 3.0
+var shove_range := 2.3
+var recoil_time := 1.4
+var shove_immunity := 4.0            # a creature can't be shoved again this soon (no doorway holding)
+var drag_speed := 1.3
+var linger_before_drag := 1.5
+var raid_time := 5.0                 # hold E at a burrow to free its captives
+var raid_wake_chance_day := 0.03     # per second, per creature sleeping in that burrow
+var raid_wake_chance_night := 0.3
+var trace_bin := 8.0                 # metres per trace cell
+var trace_threshold := 18.0          # a creature passing near this much evidence follows it
+var trace_fade_per_s := 0.04         # vacant sites fade
+var trace_day_keep := 0.6            # fraction kept across each dawn
+var blind_time := 1.5                # seconds of lantern in the face that blinds a creature
+
+# ---------------------------------------------------------------- nerve (milestone 5)
+var nerve_max := 100.0
+var nerve_dark_drain := 0.55         # per second outdoors in darkness
+var nerve_shelter_drain := 0.25      # in darkness under cover (cave, canopy)
+var nerve_alone_drain := 0.35        # extra when no teammate within nerve_company_range
+var nerve_company_range := 10.0
+var nerve_light_restore := 1.2       # lantern open or near a lit teammate / the lit shed
+var nerve_company_restore := 0.3
+var nerve_rest_restore := 1.5        # resting in a dark shelter while someone keeps watch
+var nerve_day_restore := 2.0
+var nerve_creature_seen := 2.5       # per second a creature is in view and close
+var nerve_call_shock := 6.0          # hearing a call / a nearby breach
+var nerve_teammate_down := 12.0
+var nerve_breath_below := 35.0       # audible breathing creatures can hear
+var nerve_hallucinate_below := 45.0
+var nerve_grudge_mult := 1.6         # drains faster near the creature holding a grudge against you
+var rest_stamina := 25.0             # per second while resting
+var rest_watch_range := 8.0
 
 # ---------------------------------------------------------------- nightly escalation
 # Ramp phase: linear additions per night up to the threshold night.
@@ -177,7 +242,7 @@ func creature_stats(type_name: String, night: int) -> Dictionary:
 	s["hearing_mult"] = base["hearing_mult"] * sense_mult
 	s["door_damage"] = base["door_damage"] * breach_mult
 	s["search_time"] = base["search_time"] * search_mult
-	s["climb_time"] = maxf(base["climb_time"] / speed_mult, 4.0)
+	s["climb_time"] = maxf(base["climb_time"] / speed_mult, base["climb_time"] * 0.6)
 	return s
 
 

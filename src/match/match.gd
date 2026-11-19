@@ -12,6 +12,7 @@ const IslandWorld = preload("res://src/world/island_world.gd")
 const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const Objectives = preload("res://src/match/objectives.gd")
+const CreatureBody = preload("res://src/creature/creature_body.gd")
 
 var params: Dictionary = {}
 var is_server := false
@@ -40,6 +41,13 @@ var sound_events: Array = []       # consumed by creatures each tick, then clear
 var _snap_accum := 0.0
 var _snap_count := 0
 var dev_start_phase := -1
+var traces: Dictionary = {}          # host: trace bin -> evidence of the crew being there
+var _trace_t := 0.0
+var _types_met: Dictionary = {}
+var _new_type_tonight := false
+var captives: Dictionary = {}        # host: burrow index -> [peer ids]
+var raid_progress: Dictionary = {}   # burrow index -> 0..1
+var _shove_cd: Dictionary = {}
 
 # ---- items (noisemakers): id -> {pos, vel, landed, pulses, timer, idle, flight, node}
 var noisemakers: Dictionary = {}
@@ -56,6 +64,7 @@ var bot := false
 var _bot_t := 0.0
 var _bot_yaw0 := 0.0
 var _spawn_pos := Vector3.ZERO
+var _client_raids: Dictionary = {}
 var smoke := {"snapshots": 0, "inputs": 0, "max_err": 0.0, "max_players": 0, "remote_moved": 0.0}
 
 
@@ -149,12 +158,44 @@ func _spawn_creatures() -> void:
 	# The whole pool exists from the start (dormant) so every peer agrees on ids;
 	# nightly escalation decides how many wake. Milestone 5 adds the other types.
 	var count: int = Tuning.max_creatures if params.get("world", "clearing") == "island" else 1
+	var types := creature_types_for(int(params.get("seed", 0)), count, params.get("world", "clearing") == "island")
 	for i in count:
 		var c := CreatureScript.new()
-		c.setup(i, "stalker", is_server, self, world)
+		c.setup(i, types[i], is_server, self, world, int(params.get("seed", 0)))
 		creatures_root.add_child(c)
 		c.global_position = _burrow_for(i)
 		creatures[i] = c
+
+
+## Which type each individual in the pool is. Night one draws one or two types; later
+## individuals (woken as nights escalate) can be a type the crew hasn't met yet.
+static func creature_types_for(seed_value: int, count: int, island: bool) -> Array:
+	if not island:
+		return ["stalker"]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 31 + 7
+	var order: Array = D.CREATURE_TYPES.duplicate()
+	for i in range(order.size() - 1, 0, -1):
+		var j := rng.randi() % (i + 1)
+		var t = order[i]
+		order[i] = order[j]
+		order[j] = t
+	var out: Array = []
+	for i in count:
+		match i:
+			0: out.append(order[0])
+			1: out.append(order[0] if rng.randf() < 0.5 else order[1])
+			2: out.append(order[1])
+			3: out.append(order[2])
+			4: out.append(order[3])
+			_: out.append(order[rng.randi() % order.size()])
+	return out
+
+
+func burrow_list() -> Array:
+	if "burrows" in world and not world.burrows.is_empty():
+		return world.burrows
+	return [world.burrow_pos]
 
 
 func _burrow_for(i: int) -> Vector3:
@@ -204,6 +245,9 @@ func _physics_process(delta: float) -> void:
 		sound_events.clear()
 		_srv_revive(delta)
 		_srv_tick_away(delta)
+		_srv_traces(delta)
+		_srv_drags()
+		_srv_raids(delta)
 		if not over:
 			_check_loss()
 		_snap_accum += delta
@@ -231,6 +275,7 @@ func _process(delta: float) -> void:
 			if c.awake:
 				c.interpolate(rt)
 	if local_player:
+		_spectate_if_captured()
 		local_player.yaw = look_yaw
 		local_player.pitch = look_pitch
 		# Real, host-driven warning: the lantern flickers when a creature is close.
@@ -256,6 +301,13 @@ func _set_phase(new_phase: int) -> void:
 		day_index += 1
 	phase = new_phase
 	match phase:
+		D.Phase.DAY:
+			if _new_type_tonight and day_index > 2:
+				emit_cue("new_tracks", world.burrow_pos)
+			_new_type_tonight = false
+			# Evidence fades by day, but a shelter used night after night stays warm.
+			for k in traces.keys():
+				traces[k] *= Tuning.trace_day_keep
 		D.Phase.DUSK:
 			# First night past the threshold: they stop hiding. Make the shift unmistakable.
 			if day_index == Tuning.escalation_threshold_night + 1:
@@ -267,6 +319,9 @@ func _set_phase(new_phase: int) -> void:
 			for c in creatures.values():
 				if i < count:
 					c.wake(day_index, _burrow_for(i))
+					if not _types_met.has(c.ctype):
+						_types_met[c.ctype] = true
+						_new_type_tonight = true
 				i += 1
 			emit_cue("call", world.burrow_pos + Vector3(0, 1, 0), {"count": count})
 		D.Phase.DAWN:
@@ -363,6 +418,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			var it := best_interactable(lp)
 			if it.get("kind", "") == "rope":
 				request("interact", "rope", it["id"])
+	elif event.is_action_pressed("shove"):
+		if lp.mode == D.Mode.NORMAL:
+			request("shove", look_yaw, look_pitch)
 	elif event.is_action_pressed("drop"):
 		if lp.carrying:
 			request("drop")
@@ -379,8 +437,8 @@ func _press_interact() -> void:
 		request("perch", "up")
 		return
 	var it := best_interactable(p)
-	if it.is_empty() or it["kind"] == "revive":
-		return  # revive is a hold, carried in the input bits
+	if it.is_empty() or it["kind"] == "revive" or it["kind"] == "raid":
+		return  # revive and raids are holds, carried in the input bits
 	request("interact", it["kind"], it["id"])
 
 
@@ -502,7 +560,7 @@ func _srv_post_step(p: Node, delta: float) -> void:
 				emit_sound(pos, maxf(r, Tuning.noise_branch), "branch", {"tree": p.tree_id})
 				emit_cue("branch", pos)
 			else:
-				emit_sound(pos, r, kind)
+				emit_sound(pos, r, kind, {"peer": p.peer_id})
 	elif p.mode == D.Mode.CLIMBING:
 		p.branch_timer -= delta
 		if p.branch_timer <= 0.0:
@@ -525,6 +583,7 @@ func emit_sound(pos: Vector3, radius: float, kind: String, extra: Dictionary = {
 	ev["in_cave"] = cid >= 0
 	ev["cave"] = cid
 	ev["muffled"] = cid >= 0 and world.door_blocks(cid)
+	ev["ground"] = world.ground_kind(pos) if world.has_method("ground_kind") else "soil"
 	ev.merge(extra)
 	sound_events.append(ev)
 
@@ -555,6 +614,9 @@ func _handle_request(pid: int, kind: String, a: Variant, b: Variant) -> void:
 		"drop":
 			if p.mode == D.Mode.NORMAL:
 				objectives.drop_battery(p)
+		"shove":
+			if p.mode == D.Mode.NORMAL and typeof(a) == TYPE_FLOAT:
+				_srv_shove(p)
 		"repair":
 			if p.mode == D.Mode.NORMAL:
 				objectives.repair(p)
@@ -602,6 +664,10 @@ func interact_candidates(p: Node) -> Array:
 		if q != p and q.mode == D.Mode.DOWNED:
 			out.append({"kind": "revive", "id": q.peer_id, "pos": q.global_position + Vector3(0, 0.3, 0)})
 	out.append_array(objectives.candidates(p))
+	var bl: Array = burrow_list()
+	for bi in bl.size():
+		if not captive_names(bi).is_empty():
+			out.append({"kind": "raid", "id": bi, "pos": (bl[bi] as Vector3) + Vector3(0, 0.4, 0)})
 	return out
 
 
@@ -654,6 +720,8 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 		"rope":
 			var t2: Dictionary = world.tree_by_id(it["tree"])
 			_begin_climb(p, t2, t2["rope_land"], Tuning.rope_time, "rope", t2["rope_top"])
+			for c in creatures.values():
+				c.notice_rope(t2["id"], p)
 			emit_sound(t2["rope_top"], Tuning.noise_rope, "rope")
 			emit_cue("rope", t2["rope_top"])
 		"pickup":
@@ -865,7 +933,7 @@ func down_player(p: Node, _by: Node) -> void:
 
 func _srv_revive(delta: float) -> void:
 	for q in players.values():
-		if q.mode != D.Mode.DOWNED:
+		if q.mode != D.Mode.DOWNED or q.dragged_by >= 0:
 			continue
 		var helper: Node = null
 		for r in players.values():
@@ -892,9 +960,9 @@ func _check_loss() -> void:
 	for p in players.values():
 		if p.mode == D.Mode.ESCAPED:
 			aboard += 1
-		elif p.mode != D.Mode.DOWNED:
+		elif p.mode != D.Mode.DOWNED and p.mode != D.Mode.CAPTURED:
 			return
-	# Everyone left on the island is down. Anyone already aboard still counts as a crew win.
+	# Everyone left on the island is down or captured. Anyone aboard still counts as a crew win.
 	end_match(aboard > 0)
 
 
@@ -1072,6 +1140,219 @@ func _nm_node(pos: Vector3) -> Node3D:
 	return n
 
 
+# ================================================================== creatures: shove, drag, capture, raids, traces
+
+func _srv_shove(p: Node) -> void:
+	if match_time - _shove_cd.get(p.peer_id, -99.0) < Tuning.shove_cooldown:
+		return
+	if p.stamina < Tuning.shove_stamina * 0.6:
+		notify(p, "Too winded to shove.")
+		return
+	var eye: Vector3 = p.eye_position()
+	var look: Vector3 = p.look_dir()
+	var target: Node = null
+	var best := INF
+	for c in creatures.values():
+		if not c.awake or c.underground:
+			continue
+		var to: Vector3 = c.global_position + Vector3(0, 1.0, 0) - eye
+		if to.length() < Tuning.shove_range and to.normalized().dot(look) > 0.4 and to.length() < best:
+			best = to.length()
+			target = c
+	_shove_cd[p.peer_id] = match_time
+	p.stamina = maxf(0.0, p.stamina - Tuning.shove_stamina)
+	p.regen_timer = Tuning.stamina_regen_delay * 2.0
+	if target and target.on_shoved(p):
+		emit_cue("shove", target.global_position + Vector3(0, 1.2, 0), {"name": p.display_name})
+
+
+func attach_drag(p: Node, c: Node) -> void:
+	p.dragged_by = c.cid
+
+
+func release_drag(peer: int) -> void:
+	var p: Node = players.get(peer)
+	if p:
+		p.dragged_by = -1
+
+
+func _srv_drags() -> void:
+	for p in players.values():
+		if p.dragged_by < 0:
+			continue
+		var c: Node = creatures.get(p.dragged_by)
+		if c == null or c.state != D.CState.DRAG or p.mode != D.Mode.DOWNED:
+			p.dragged_by = -1
+			continue
+		var behind: Vector3 = c.global_position - c.forward() * 1.1
+		behind.y = world.ground_y(behind) + 0.05
+		p.global_position = behind
+		p.velocity = Vector3.ZERO
+
+
+func capture_player(p: Node, burrow: Vector3, _c: Node) -> void:
+	var bl: Array = burrow_list()
+	var bi := 0
+	for i in bl.size():
+		if (bl[i] as Vector3).distance_to(burrow) < (bl[bi] as Vector3).distance_to(burrow):
+			bi = i
+	p.dragged_by = -1
+	p.mode = D.Mode.CAPTURED
+	p.lantern_open = false
+	if p.carrying:
+		objectives.drop_battery(p)
+	p.global_position = (bl[bi] as Vector3) + Vector3(0, -3.0, 0)
+	if not captives.has(bi):
+		captives[bi] = []
+	captives[bi].append(p.peer_id)
+	if objectives.enabled:
+		objectives.burrow_known(bi)
+	emit_cue("captured", bl[bi], {"name": p.display_name})
+
+
+func captive_names(bi: int) -> Array:
+	if not is_server:
+		var r: Array = _client_raids.get(bi, [])
+		return r[0] if not r.is_empty() else []
+	var out: Array = []
+	for pid in captives.get(bi, []):
+		if players.has(pid):
+			out.append(players[pid].display_name)
+	return out
+
+
+## Hold E at a burrow to free its captives. Sleeping creatures may stir - far more at night.
+func _srv_raids(delta: float) -> void:
+	var bl: Array = burrow_list()
+	for bi in captives.keys():
+		if (captives[bi] as Array).is_empty():
+			continue
+		var raider: Node = null
+		for r in players.values():
+			if r.mode == D.Mode.NORMAL and (int(r.last_input.get("btn", 0)) & D.BTN_INTERACT) != 0 and r.global_position.distance_to(bl[bi]) < 3.0:
+				raider = r
+				break
+		if raider == null:
+			raid_progress[bi] = maxf(0.0, raid_progress.get(bi, 0.0) - delta * 0.5)
+			continue
+		raid_progress[bi] = raid_progress.get(bi, 0.0) + delta / Tuning.raid_time
+		emit_sound(bl[bi], 6.0, "digging", {"peer": raider.peer_id})
+		var chance := Tuning.raid_wake_chance_day if daylight() > 0.5 else Tuning.raid_wake_chance_night
+		for c in creatures.values():
+			if c.state == D.CState.DORMANT and c.home.distance_to(bl[bi]) < 4.0 and randf() < chance * delta:
+				c.wake(day_index, bl[bi])
+				if daylight() > 0.5:
+					c.lurk(bl[bi])   # sluggish in daylight: it stays near the burrow mouth
+				emit_cue("surface", bl[bi])
+		if raid_progress[bi] >= 1.0:
+			raid_progress[bi] = 0.0
+			var freed: Array = captives[bi]
+			captives[bi] = []
+			var k := 0
+			for pid in freed:
+				var q: Node = players.get(pid)
+				if q == null:
+					continue
+				q.mode = D.Mode.NORMAL
+				q.stamina = 40.0
+				q.revive_progress = 0.0
+				var a := TAU * k / maxf(freed.size(), 1.0)
+				var out: Vector3 = (bl[bi] as Vector3) + Vector3(cos(a), 0, sin(a)) * 2.5
+				out.y = world.ground_y(out) + 0.1
+				q.global_position = out
+				q.last_dry = out
+				q.try_set_stance(D.Stance.CROUCH)
+				k += 1
+				emit_cue("freed", out, {"name": q.display_name})
+
+
+## Evidence builds where the crew spends time (more people, more movement = faster) and
+## fades when a place is vacant. Staying put night after night builds risk; moving resets it.
+func _srv_traces(delta: float) -> void:
+	_trace_t += delta
+	if _trace_t < 0.5:
+		return
+	var dt := _trace_t
+	_trace_t = 0.0
+	var occupied := {}
+	for p in players.values():
+		if p.mode == D.Mode.ESCAPED or p.mode == D.Mode.CAPTURED or p.away:
+			continue
+		var key := _trace_key(p.global_position)
+		var rate := 0.3 if (not p.moving and p.stance != D.Stance.STAND) else (2.0 if p.moving else 1.0)
+		traces[key] = traces.get(key, 0.0) + rate * dt
+		occupied[key] = true
+	for key in traces.keys():
+		if not occupied.has(key):
+			traces[key] = traces[key] - Tuning.trace_fade_per_s * dt * maxf(traces[key], 1.0) * 0.1
+			if traces[key] <= 0.05:
+				traces.erase(key)
+
+
+func _trace_key(p: Vector3) -> Vector2i:
+	return Vector2i(floori(p.x / Tuning.trace_bin), floori(p.z / Tuning.trace_bin))
+
+
+## The strongest trail within r metres of pos, or Vector3.INF.
+func trace_hotspot_near(pos: Vector3, r: float) -> Vector3:
+	var best := Vector3.INF
+	var best_v := Tuning.trace_threshold
+	var c := _trace_key(pos)
+	var span := int(ceil(r / Tuning.trace_bin))
+	for dj in range(-span, span + 1):
+		for di in range(-span, span + 1):
+			var k := c + Vector2i(di, dj)
+			var v: float = traces.get(k, 0.0)
+			if v > best_v:
+				var center := Vector3((k.x + 0.5) * Tuning.trace_bin, 0, (k.y + 0.5) * Tuning.trace_bin)
+				center.y = world.ground_y(center)
+				if center.distance_to(pos) <= r + Tuning.trace_bin:
+					best_v = v
+					best = center
+	return best
+
+
+## Flush and wait: the nearest other calm creature goes and holds an exit, silent.
+func recruit_holder(caller: Node, point: Vector3, face: Vector3, why: String) -> void:
+	var pick: Node = null
+	var best := 45.0
+	for c in creatures.values():
+		if c == caller or not c.awake or not c.is_calm():
+			continue
+		var d: float = c.global_position.distance_to(point)
+		if d < best:
+			best = d
+			pick = c
+	if pick:
+		pick.hold_at(point, face, 20.0, why)
+
+
+func shake_platform(_tree_id: int, _strength: float) -> void:
+	pass   # built platforms take damage here (building at slots)
+
+
+## A captured player's view: ride along with a teammate who's still out there.
+func _spectate_if_captured() -> void:
+	var lp := local_player
+	if lp.camera == null:
+		return
+	if lp.mode != D.Mode.CAPTURED:
+		if lp.camera.top_level:
+			lp.camera.top_level = false
+			lp.camera.transform = Transform3D.IDENTITY
+		return
+	var watch: Node = null
+	for p in players.values():
+		if p != lp and (p.mode == D.Mode.NORMAL or p.mode == D.Mode.CLIMBING or p.mode == D.Mode.PERCHED or p.mode == D.Mode.DOWNED):
+			watch = p
+			break
+	if watch == null:
+		return
+	lp.camera.top_level = true
+	var eye: Vector3 = watch.global_position + Vector3(0, 2.3, 0) - Vector3(-sin(watch.yaw), 0, -cos(watch.yaw)) * 2.6
+	lp.camera.global_transform = Transform3D(Basis.IDENTITY, eye).looking_at(watch.global_position + Vector3(0, 1.2, 0), Vector3.UP)
+
+
 # ================================================================== replication
 
 ## Host: peers whose match scene is built and can receive match traffic.
@@ -1129,11 +1410,15 @@ func _send_snapshot() -> void:
 			"canopy": flags |= 64
 		if p.carrying: flags |= 128
 		if p.away: flags |= 256
-		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood])
+		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean])
 	var cs: Array = []
 	for c in creatures.values():
-		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake])
+		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake, c.underground, c.scars])
+	var raids := {}
+	for bi in captives:
+		raids[bi] = [captive_names(bi), raid_progress.get(bi, 0.0)]
 	var snap := {
+		"raids": raids,
 		"t": match_time, "ph": phase, "pt": phase_time, "d": day_index, "n": nights_survived,
 		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(),
 	}
@@ -1182,6 +1467,10 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.perch = e[12]
 		p.sprinting = (flags & 2) != 0
 		p.carrying = (flags & 128) != 0
+		p.nerve = e[14]
+		p.dragged_by = e[15]
+		if not p.is_local:
+			p.lean = e[16]
 		p.away = (flags & 256) != 0
 		p.wood = e[13]
 		p.inside_cave = (flags & 8) != 0
@@ -1206,6 +1495,9 @@ func _rpc_snapshot(s: Dictionary) -> void:
 			continue
 		c.state = e[3]
 		c.climbing = e[4]
+		c.underground = e[6]
+		if c.scars != e[7]:
+			c.scars = e[7]
 		if bool(e[5]) != c.awake:
 			c._set_awake(e[5])
 			c.snaps.clear()
@@ -1217,6 +1509,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		if doors[i][0] != cv["door_open"] or absf(doors[i][1] - cv["door_hp"]) > 0.01:
 			world.set_door(doors[i][0], doors[i][1], i)
 	objectives.apply(s["obj"])
+	_client_raids = s.get("raids", {})
 	if s.has("dbg"):
 		for k in s["dbg"]:
 			if creatures.has(k):
@@ -1279,6 +1572,35 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 		"boarded":
 			if hud:
 				hud.notice("%s is aboard." % data.get("name", "Someone"))
+		"ccall":
+			var cc: Array = CreatureBody.CALLS.get(data.get("type", "stalker"), CreatureBody.CALLS["stalker"])
+			Sfx.play_3d(cc[0], pos, cc[2], cc[1], 220.0)
+		"shriek":
+			Sfx.play_3d("screech", pos, 8.0, 1.4, 80.0)
+			if hud:
+				hud.cue("It recoils from the light", pos, false)
+		"dig":
+			Sfx.play_3d("creature_step", pos, 4.0, 0.35, 45.0)
+			if hud:
+				hud.cue("Something went under the ground", pos, true)
+		"surface":
+			Sfx.play_3d("door_hit", pos, 2.0, 0.45, 50.0)
+			if hud:
+				hud.cue("The ground heaves", pos, true)
+		"shove":
+			Sfx.play_3d("door_hit", pos, 0.0, 1.4, 30.0)
+			if hud:
+				hud.notice("%s shoved it back!" % data.get("name", "Someone"))
+		"captured":
+			Sfx.play_3d("down", pos, 6.0, 0.6, 120.0)
+			if hud:
+				hud.big_message("%s was dragged underground" % data.get("name", "Someone"), "The burrow is on the map. By day the things inside are sluggish - raid it.")
+		"freed":
+			if hud:
+				hud.big_message("%s is free" % data.get("name", "Someone"), "Get out of there before they wake.")
+		"new_tracks":
+			if hud:
+				hud.notice("Unfamiliar tracks near the burrows this morning. Something new came up last night.")
 		"away":
 			if hud:
 				hud.notice("%s lost their connection. Their slot is held for %d s." % [data.get("name", "Someone"), int(Tuning.reconnect_grace)])
@@ -1376,6 +1698,8 @@ func prompt_text() -> String:
 	match p.mode:
 		D.Mode.ESCAPED:
 			return ""
+		D.Mode.CAPTURED:
+			return "Captured in a burrow. Your crew can raid it - by day the things inside are sluggish."
 		D.Mode.DOWNED:
 			return "You are down. Crawl to cover — a teammate can revive you."
 		D.Mode.CLIMBING:
@@ -1412,6 +1736,8 @@ func prompt_text() -> String:
 			if q:
 				pct = int(q.revive_progress * 100.0)
 			return "[Hold E] Revive %s  %d%%" % [q.display_name if q else "?", pct]
+		"raid":
+			return "[Hold E] Raid the burrow - free %s  %d%%" % [", ".join(captive_names(it["id"])), int(raid_progress.get(it["id"], 0.0) * 100.0)]
 	return objectives.prompt(it)
 
 

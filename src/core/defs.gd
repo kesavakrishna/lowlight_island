@@ -2,12 +2,13 @@ extends RefCounted
 ## Shared enums and constants. Preload as `const D = preload("res://src/core/defs.gd")`.
 
 enum Stance { STAND, CROUCH, PRONE }
-enum Mode { NORMAL, CLIMBING, PERCHED, DOWNED, ESCAPED }
+enum Mode { NORMAL, CLIMBING, PERCHED, DOWNED, ESCAPED, CAPTURED }
 enum Phase { DAY, DUSK, NIGHT, DAWN }
-enum CState { DORMANT, PATROL, INVESTIGATE, SEARCH, CHASE, CLIMB, TREE_ATTACK, CLIMB_DOWN, BREACH, LINGER, RETURN }
+enum CState { DORMANT, PATROL, INVESTIGATE, SEARCH, CHASE, CLIMB, TREE_ATTACK, CLIMB_DOWN, BREACH, LINGER, RETURN, HOLD, DRAG, RECOIL }
 
 const PHASE_NAMES := ["Day", "Dusk", "Night", "Dawn"]
-const CSTATE_NAMES := ["dormant", "patrol", "investigate", "search", "chase", "climb", "tree_attack", "climb_down", "breach", "linger", "return"]
+const CSTATE_NAMES := ["dormant", "patrol", "investigate", "search", "chase", "climb", "tree_attack", "climb_down", "breach", "linger", "return", "hold", "drag", "recoil"]
+const CREATURE_TYPES := ["stalker", "listener", "digger", "climber"]
 
 # Physics layers (bit values). Visibility is kept separate from collision:
 # anything that blocks creature sight must also be on L_SIGHT.

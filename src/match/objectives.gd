@@ -26,6 +26,7 @@ var escaped: Array = []            # peer ids aboard
 var dock_known := false
 var battery_found := false
 var caves_known: Array = []        # cave ids someone has seen
+var burrows_known: Array = []      # burrow indices someone has seen (or been dragged into)
 var wood_amounts: Array = []
 
 # ---- host bookkeeping
@@ -52,6 +53,8 @@ func setup(p_match: Node) -> void:
 		wood_amounts.append(int(wp["amount"]))
 	caves_known.resize(w.caves.size())
 	caves_known.fill(false)
+	burrows_known.resize(w.burrows.size())
+	burrows_known.fill(false)
 	_build_visuals()
 
 
@@ -82,6 +85,9 @@ func server_tick(delta: float) -> void:
 		for i in w.caves.size():
 			if not caves_known[i] and pos.distance_to(w.caves[i]["door_point"]) < 25.0:
 				caves_known[i] = true
+		for i in w.burrows.size():
+			if not burrows_known[i] and pos.distance_to(w.burrows[i]) < 20.0:
+				burrows_known[i] = true
 	_tick_broadcast(delta)
 	_tick_boat(delta)
 
@@ -148,6 +154,11 @@ func on_phase(phase: int) -> void:
 		boat_due = false
 		boat_window = Tuning.boarding_window
 		m.emit_cue("boat_arrived", m.world.boat_pos)
+
+
+func burrow_known(i: int) -> void:
+	if i >= 0 and i < burrows_known.size():
+		burrows_known[i] = true
 
 
 func boat_here() -> bool:
@@ -275,7 +286,7 @@ func repair(p: Node) -> void:
 
 func serialize() -> Array:
 	return [battery_state, battery_pos, carrier, radio_powered, broadcast, broadcast_running,
-		broadcast_active, broadcast_done, boat_window, escaped, dock_known, battery_found, caves_known, wood_amounts, boat_due]
+		broadcast_active, broadcast_done, boat_window, escaped, dock_known, battery_found, caves_known, wood_amounts, boat_due, burrows_known]
 
 
 func apply(a: Array) -> void:
@@ -296,6 +307,8 @@ func apply(a: Array) -> void:
 	caves_known = a[12]
 	wood_amounts = a[13]
 	boat_due = a[14]
+	if a.size() > 15:
+		burrows_known = a[15]
 
 
 # ================================================================== presentation

@@ -480,3 +480,7 @@ func _build_decor() -> void:
 		var a := rng.randf() * TAU
 		var d := rng.randf_range(PLAY_RADIUS + 10.0, PLAY_RADIUS + 30.0)
 		Geo.sphere(self, rng.randf_range(8.0, 14.0), Vector3(cos(a) * d, -3.0, sin(a) * d), m_leaf, Vector3(1.4, 0.7, 1.4), false)
+
+
+func ground_kind(p: Vector3) -> String:
+	return "rock" if cave_at(p) >= 0 or p.y > 1.0 else "soil"

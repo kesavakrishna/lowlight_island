@@ -223,6 +223,10 @@ func _draw_map() -> void:
 	for i in w.caves.size():
 		if i < obj.caves_known.size() and obj.caves_known[i]:
 			_map_mark(_map_point(w.caves[i]["door_point"]), Color(0.85, 0.85, 0.85), "cave", font)
+	for i in w.burrows.size():
+		if i < obj.burrows_known.size() and obj.burrows_known[i]:
+			var names: Array = m.captive_names(i)
+			_map_mark(_map_point(w.burrows[i]), Color(0.6, 0.35, 0.15), "burrow" + ("  (" + ", ".join(names) + ")" if not names.is_empty() else ""), font)
 	for p in m.players.values():
 		if p.mode == D.Mode.ESCAPED:
 			continue
