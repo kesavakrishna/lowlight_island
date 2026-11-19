@@ -13,6 +13,7 @@ const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const Objectives = preload("res://src/match/objectives.gd")
 const Building = preload("res://src/match/building.gd")
+const Expedition = preload("res://src/match/expedition.gd")
 const CreatureBody = preload("res://src/creature/creature_body.gd")
 const NerveFx = preload("res://src/player/nerve_fx.gd")
 
@@ -22,6 +23,7 @@ var headless := false
 var world: Node3D
 var objectives: RefCounted = null
 var building: RefCounted = null
+var expedition: RefCounted = null
 var env: Node3D
 var hud: CanvasLayer
 var players: Dictionary = {}       # peer_id -> player.gd
@@ -105,6 +107,8 @@ func _ready() -> void:
 	objectives.setup(self)
 	building = Building.new()
 	building.setup(self)
+	expedition = Expedition.new()
+	expedition.setup(self)
 	var roster: Dictionary = params.get("roster", {})
 	var ids: Array = roster.keys()
 	ids.sort()
@@ -251,6 +255,7 @@ func _physics_process(delta: float) -> void:
 		_srv_update_noisemakers(delta)
 		objectives.server_tick(delta)
 		building.tick(delta)
+		expedition.server_tick(delta)
 		_srv_wall_attacks(delta)
 		for c in creatures.values():
 			c.server_tick(delta)
@@ -278,6 +283,7 @@ func _physics_process(delta: float) -> void:
 
 func _process(delta: float) -> void:
 	objectives.process_visuals(delta)
+	expedition.process_visuals(delta)
 	var rt := _wall() + _time_offset - 0.1
 	if not is_server:
 		for p in players.values():
@@ -338,6 +344,7 @@ func _set_phase(new_phase: int) -> void:
 						_new_type_tonight = true
 				i += 1
 			emit_cue("call", world.burrow_pos + Vector3(0, 1, 0), {"count": count})
+			expedition.on_phase(phase)
 		D.Phase.DAWN:
 			nights_survived += 1
 			objectives.on_phase(phase)
@@ -698,6 +705,7 @@ func interact_candidates(p: Node) -> Array:
 		if q != p and q.mode == D.Mode.DOWNED:
 			out.append({"kind": "revive", "id": q.peer_id, "pos": q.global_position + Vector3(0, 0.3, 0)})
 	out.append_array(objectives.candidates(p))
+	out.append_array(expedition.candidates(p))
 	var bl: Array = burrow_list()
 	for bi in bl.size():
 		if not captive_names(bi).is_empty():
@@ -764,7 +772,8 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 				noisemakers.erase(id)
 				_broadcast_event("nm_remove", Vector3.ZERO, {"id": id})
 		_:
-			objectives.interact(p, kind, id)
+			if not objectives.interact(p, kind, id):
+				expedition.interact(p, kind, id)
 
 
 func _srv_toggle_door(p: Node, cid: int) -> void:
@@ -952,6 +961,7 @@ func down_player(p: Node, _by: Node) -> void:
 		p.global_position = t["pos"] + Vector3(cos(a), 0, sin(a)) * (t["trunk_r"] + 1.0) + Vector3(0, 0.05, 0)
 	if p.carrying:
 		objectives.drop_battery(p)   # a downed carrier drops it where the crew can get it back
+	expedition.drop_part(p)
 	p.mode = D.Mode.DOWNED
 	p.climb = {}
 	p.perch = ""
@@ -1047,6 +1057,7 @@ func _srv_tick_away(delta: float) -> void:
 			continue
 		p.grace -= delta
 		if p.grace <= 0.0:
+			expedition.drop_part(p)
 			if p.carrying:
 				objectives.drop_battery(p)
 			_remove_player(pid)
@@ -1217,6 +1228,21 @@ func _srv_rest(delta: float) -> void:
 		p.stamina = minf(Tuning.stamina_max, p.stamina + Tuning.rest_stamina * delta)
 
 
+## Show a note's text to one player (host shows it locally, clients get an RPC).
+func send_note(p: Node, id: int) -> void:
+	if p.is_local:
+		_rpc_note(id)
+	else:
+		_rpc_note.rpc_id(p.peer_id, id)
+
+
+@rpc("authority", "reliable")
+func _rpc_note(id: int) -> void:
+	if hud and expedition.enabled:
+		var t: Array = expedition.note_text(id)
+		hud.show_note(t[0], t[1])
+
+
 ## Where the local player is looking (for pings): the first thing hit within 80 m.
 func _ping_target() -> Vector3:
 	var lp := local_player
@@ -1377,6 +1403,7 @@ func capture_player(p: Node, burrow: Vector3, _c: Node) -> void:
 	p.dragged_by = -1
 	p.mode = D.Mode.CAPTURED
 	p.lantern_open = false
+	expedition.drop_part(p)
 	if p.carrying:
 		objectives.drop_battery(p)
 	p.global_position = (bl[bi] as Vector3) + Vector3(0, -3.0, 0)
@@ -1617,7 +1644,7 @@ func _send_snapshot() -> void:
 		if p.carrying: flags |= 128
 		if p.resting: flags |= 512
 		if p.away: flags |= 256
-		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean, _job_progress(p.peer_id)])
+		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean, _job_progress(p.peer_id), p.part])
 	var cs: Array = []
 	for c in creatures.values():
 		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake, c.underground, c.scars])
@@ -1627,7 +1654,7 @@ func _send_snapshot() -> void:
 	var snap := {
 		"raids": raids,
 		"t": match_time, "ph": phase, "pt": phase_time, "d": day_index, "n": nights_survived,
-		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(), "builds": building.serialize(),
+		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(), "builds": building.serialize(), "exp": expedition.serialize(),
 	}
 	if _snap_count % 10 == 0:
 		var dbg := {}
@@ -1682,6 +1709,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.resting = (flags & 512) != 0
 		p.nerve = e[14]
 		p.build_progress = e[17]
+		p.part = e[18]
 		p.dragged_by = e[15]
 		if not p.is_local:
 			p.lean = e[16]
@@ -1724,6 +1752,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 			world.set_door(doors[i][0], doors[i][1], i)
 	objectives.apply(s["obj"])
 	building.apply_remote(s.get("builds", {}))
+	expedition.apply(s.get("exp", []))
 	_client_raids = s.get("raids", {})
 	if s.has("dbg"):
 		for k in s["dbg"]:
@@ -1822,6 +1851,24 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 		"ping":
 			if hud:
 				hud.add_ping(pos, data.get("kind", "move"), data.get("name", ""))
+		"lamp":
+			expedition.flash_lamp()
+			if hud:
+				hud.notice("The lighthouse lamp flashes three times. Get below the windows.")
+		"part_fitted":
+			Sfx.play_3d("door_hit", pos, -2.0, 1.7, 40.0)
+			if hud:
+				hud.notice("A part is fitted to the skiff (%d / %d)." % [data.get("count", 0), data.get("of", 3)])
+		"engine_start":
+			Sfx.play_3d("call", pos, 4.0, 2.6, 160.0)
+			if hud:
+				hud.big_message("The engine coughs to life", "It's loud. Everything on the island heard that. Hold on until she floats.")
+		"skiff_ready":
+			if hud:
+				hud.big_message("The skiff is afloat", "Get aboard before it's too late.")
+		"skiff_missed":
+			if hud:
+				hud.big_message("The skiff drifted off empty", "The engine needs warming up again.")
 		"new_tracks":
 			if hud:
 				hud.notice("Unfamiliar tracks near the burrows this morning. Something new came up last night.")
@@ -1975,7 +2022,8 @@ func _prompt_main() -> String:
 			return "[Hold E] Revive %s  %d%%" % [q.display_name if q else "?", pct]
 		"raid":
 			return "[Hold E] Raid the burrow - free %s  %d%%" % [", ".join(captive_names(it["id"])), int(raid_progress.get(it["id"], 0.0) * 100.0)]
-	return objectives.prompt(it)
+	var op: String = objectives.prompt(it)
+	return op if op != "" else expedition.prompt(it)
 
 
 func smoke_report() -> String:

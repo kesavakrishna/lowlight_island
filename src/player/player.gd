@@ -36,6 +36,7 @@ var dragged_by := -1             # creature id dragging this downed player
 var lean := 0.0                  # -1 left .. 1 right (peeking)
 var resting := false             # resting in a dark shelter while someone keeps watch
 var build_progress := 0.0
+var part := -1                   # index of a skiff part being carried
 var mantle_t := -1.0
 var mantle_from := Vector3.ZERO
 var mantle_to := Vector3.ZERO

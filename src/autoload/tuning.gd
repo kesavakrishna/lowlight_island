@@ -120,6 +120,9 @@ var repair_hp := 35.0
 var rebuild_cost := 3
 var rebuild_hp := 60.0
 var build_time := 3.0                # seconds of noisy work to place a piece
+var launch_time := 45.0              # the skiff engine's warm-up (loud the whole time)
+var launch_noise := 80.0
+var skiff_window := 40.0             # seconds to get aboard once she floats
 var noise_build := 14.0
 
 # ---------------------------------------------------------------- creatures: night-one baseline per type

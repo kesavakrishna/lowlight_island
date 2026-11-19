@@ -182,6 +182,63 @@ static func burrow(parent: Node3D, pos: Vector3) -> void:
 	Geo.mesh(root, hole, Transform3D(Basis.IDENTITY, pos + Vector3(0, 0.03, 0)), Geo.mat(Color(0.01, 0.01, 0.01)), false)
 
 
+## The keeper's lighthouse: a white tower with a lantern room; the door faces inland.
+static func lighthouse(parent: Node3D, pos: Vector3, grid: RefCounted) -> Vector3:
+	var root := Node3D.new()
+	root.name = "Lighthouse"
+	root.position = pos
+	parent.add_child(root)
+	var white := Geo.mat(Color(0.82, 0.8, 0.74))
+	var red := Geo.mat(Color(0.5, 0.14, 0.1))
+	var dark := Geo.mat(Color(0.15, 0.15, 0.16))
+	Geo.cylinder(root, 2.2, 12.0, Vector3.ZERO, white, D.L_WORLD | D.L_SIGHT, 1.6, 16)
+	for y in [3.0, 7.5]:
+		Geo.cylinder(root, 2.05 - y * 0.045, 0.9, Vector3(0, y, 0), red, 0, 1.95 - y * 0.045, 16)
+	Geo.cylinder(root, 2.2, 0.2, Vector3(0, 12.0, 0), dark, 0, 2.2, 16)
+	Geo.cylinder(root, 1.1, 1.6, Vector3(0, 12.2, 0), Geo.mat(Color(0.9, 0.85, 0.6), 0.2, Color(0.5, 0.45, 0.3), 0.3), 0, 1.1, 12)
+	Geo.cylinder(root, 1.3, 0.8, Vector3(0, 13.8, 0), red, 0, 0.2, 12)
+	var inland := Vector3(-pos.x, 0, -pos.z).normalized()
+	var door := pos + inland * 2.3
+	Geo.box(root, Vector3(1.0, 2.0, 0.1), inland * 2.15 + Vector3(0, 1.0, 0), dark, 0, atan2(inland.x, inland.z))
+	grid.block_circle(pos, 2.2, 0.3)
+	return door
+
+
+## The keeper's cottage: stone walls, a sagging roof, a doorway and a cupboard.
+static func cottage(parent: Node3D, pos: Vector3, yaw: float, grid: RefCounted) -> void:
+	var root := Node3D.new()
+	root.name = "Cottage"
+	root.transform = Transform3D(Basis(Vector3.UP, yaw), pos)
+	parent.add_child(root)
+	var stone := Geo.mat(Color(0.42, 0.4, 0.36))
+	var roof := Geo.mat(Color(0.24, 0.18, 0.14))
+	var wood := Geo.mat(Color(0.38, 0.28, 0.18))
+	Geo.box(root, Vector3(5.0, 2.4, 0.3), Vector3(0, 1.2, -2.0), stone)
+	Geo.box(root, Vector3(0.3, 2.4, 4.0), Vector3(-2.35, 1.2, 0), stone)
+	Geo.box(root, Vector3(0.3, 2.4, 4.0), Vector3(2.35, 1.2, 0), stone)
+	Geo.box(root, Vector3(1.8, 2.4, 0.3), Vector3(-1.6, 1.2, 2.0), stone)
+	Geo.box(root, Vector3(1.8, 2.4, 0.3), Vector3(1.6, 1.2, 2.0), stone)
+	Geo.box(root, Vector3(5.4, 0.15, 4.6), Vector3(0, 2.55, 0), roof, D.L_WORLD | D.L_SIGHT, 0.0, Vector3(0.06, 0, 0.05))
+	Geo.box(root, Vector3(1.2, 0.8, 0.5), Vector3(-0.8, 0.4, -1.5), wood)
+	Geo.box(root, Vector3(0.9, 1.6, 0.4), Vector3(1.5, 0.8, -1.6), wood)
+	_block_box(grid, root.transform, Vector3(-2.5, 0, -2.15), Vector3(2.5, 0, -1.85))
+	_block_box(grid, root.transform, Vector3(-2.5, 0, -2.0), Vector3(-2.2, 0, 2.0))
+	_block_box(grid, root.transform, Vector3(2.2, 0, -2.0), Vector3(2.5, 0, 2.0))
+
+
+## The keeper's old skiff, pulled up on the sand. Returns its node (parts attach to it).
+static func skiff(parent: Node3D, pos: Vector3) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Skiff"
+	var out := Vector3(pos.x, 0, pos.z).normalized()
+	root.transform = Transform3D(Basis(Vector3.UP, atan2(out.x, out.z)), pos)
+	parent.add_child(root)
+	var hull := Geo.mat(Color(0.32, 0.38, 0.42))
+	Geo.box(root, Vector3(1.5, 0.55, 4.2), Vector3(0, 0.3, 0), hull, D.L_WORLD | D.L_SIGHT, 0.0, Vector3(0.05, 0, 0.08))
+	Geo.box(root, Vector3(1.3, 0.06, 0.25), Vector3(0, 0.6, 0.3), Geo.mat(Color(0.45, 0.35, 0.22)), 0)
+	return root
+
+
 static func _block_box(grid: RefCounted, xf: Transform3D, a: Vector3, b: Vector3) -> void:
 	var p1 := xf * a
 	var p2 := xf * b

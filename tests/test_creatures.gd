@@ -110,6 +110,8 @@ func test_shove_recoil_scar_grudge_and_immunity(r: Node) -> void:
 
 
 func test_drag_capture_and_raid(r: Node) -> void:
+	var saved := Tuning.raid_wake_chance_day
+	Tuning.raid_wake_chance_day = 0.0   # the risk is random; this test checks the mechanics
 	var m := _make(r, {1: {"name": "Host", "slot": 0}, 2: {"name": "Guest", "slot": 1}})
 	await _wait(r, 0.1)
 	var c: Node = m.creatures[0]
@@ -146,6 +148,7 @@ func test_drag_capture_and_raid(r: Node) -> void:
 			break
 	check(guest.mode == D.Mode.NORMAL, "holding E at the burrow frees the captive")
 	m.free()
+	Tuning.raid_wake_chance_day = saved
 
 
 func test_everyone_captured_or_down_ends_the_run(r: Node) -> void:

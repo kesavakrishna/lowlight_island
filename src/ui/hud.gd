@@ -32,6 +32,10 @@ var _map_tex: TextureRect
 var _map_marks: Control
 var _map_px := 4
 var _pings: Array = []   # {pos, kind, name, t, node}
+var _note_panel: PanelContainer
+var _note_title: Label
+var _note_body: Label
+var _note_t := 0.0
 var _nerve_veil: TextureRect
 var _nerve_label: Label
 
@@ -144,6 +148,29 @@ func _ready() -> void:
 	_debug.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
 
 	_build_map(root)
+	_note_panel = PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.86, 0.82, 0.7, 0.94)
+	sb.set_corner_radius_all(3)
+	sb.set_content_margin_all(18)
+	_note_panel.add_theme_stylebox_override("panel", sb)
+	_note_panel.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	_note_panel.position = Vector2(-470, -150)
+	_note_panel.custom_minimum_size = Vector2(440, 0)
+	_note_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_note_panel.visible = false
+	root.add_child(_note_panel)
+	var nb := VBoxContainer.new()
+	_note_panel.add_child(nb)
+	_note_title = Label.new()
+	_note_title.add_theme_font_size_override("font_size", 20)
+	_note_title.add_theme_color_override("font_color", Color(0.18, 0.14, 0.1))
+	nb.add_child(_note_title)
+	_note_body = Label.new()
+	_note_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_note_body.custom_minimum_size = Vector2(400, 0)
+	_note_body.add_theme_color_override("font_color", Color(0.22, 0.18, 0.12))
+	nb.add_child(_note_body)
 	_build_pause(root)
 	_build_results(root)
 
@@ -196,6 +223,14 @@ func _build_map(root: Control) -> void:
 	_map_marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_map_marks.draw.connect(_draw_map)
 	_map_tex.add_child(_map_marks)
+
+
+## A keeper's note, shown beside the view without stopping play.
+func show_note(title: String, body: String) -> void:
+	_note_title.text = title
+	_note_body.text = body
+	_note_panel.visible = true
+	_note_t = 14.0
 
 
 const PING_COLORS := {"move": Color(0.45, 0.9, 1.0), "danger": Color(1.0, 0.35, 0.3), "hold": Color(1.0, 0.85, 0.35)}
@@ -282,6 +317,19 @@ func _draw_map() -> void:
 		if i < obj.burrows_known.size() and obj.burrows_known[i]:
 			var names: Array = m.captive_names(i)
 			_map_mark(_map_point(w.burrows[i]), Color(0.6, 0.35, 0.15), "burrow" + ("  (" + ", ".join(names) + ")" if not names.is_empty() else ""), font)
+	var ex: RefCounted = m.expedition
+	if ex and ex.enabled:
+		var g: RefCounted = w.gen
+		if ex.known["lighthouse"]:
+			_map_mark(_map_point(g.lighthouse), Color(0.95, 0.95, 0.85), "lighthouse", font)
+		if ex.known["cottage"]:
+			_map_mark(_map_point(g.cottage), Color(0.8, 0.7, 0.55), "keeper's cottage", font)
+		if ex.known["skiff"] or ex.known["parts"]:
+			_map_mark(_map_point(g.skiff), Color(0.55, 0.75, 0.85), "skiff", font)
+		if ex.known["parts"]:
+			for pt in ex.parts:
+				if pt["state"] != ex.Part.FITTED and pt["state"] != ex.Part.CARRIED:
+					_map_marks.draw_arc(_map_point(pt["pos"]), 10.0, 0, TAU, 20, Color(0.55, 0.75, 0.85), 2.0)
 	for pg in _pings:
 		var pp := _map_point(pg["pos"])
 		_map_marks.draw_circle(pp, 6.0, PING_COLORS.get(pg["kind"], Color.WHITE))
@@ -482,6 +530,12 @@ func _process(delta: float) -> void:
 	_tick_pings(delta)
 	var obj: RefCounted = m.objectives
 	_objective.text = obj.objective_text() if obj else ""
+	var ex: RefCounted = m.expedition
+	if ex and ex.objective_text() != "":
+		_objective.text += "\n" + ex.objective_text()
+	if _note_t > 0.0:
+		_note_t -= delta
+		_note_panel.visible = _note_t > 0.0
 	_broadcast_bar.visible = obj != null and obj.enabled and obj.radio_powered and not obj.broadcast_done and obj.broadcast > 0.0
 	if _broadcast_bar.visible:
 		_broadcast_bar.value = obj.broadcast

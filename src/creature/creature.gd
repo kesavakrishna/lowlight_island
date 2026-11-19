@@ -639,7 +639,7 @@ func _on_sound(ev: Dictionary, d: float, r: float) -> void:
 	if leash != Vector3.INF and ev["pos"].distance_to(leash) > leash_r + 10.0:
 		return   # won't leave the shade at dawn
 	var pri := 0.5 + (1.0 - d / r) * 0.4 + mind.curiosity * 0.1
-	if kind == "broadcast":
+	if kind == "broadcast" or kind == "engine":
 		pri = 0.95
 	if kind == "noisemaker":
 		if mind.knows("decoy"):

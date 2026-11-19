@@ -51,6 +51,8 @@ var dock_board := Vector3.ZERO
 var boat_pos := Vector3.ZERO
 var wood_piles: Array[Dictionary] = []
 var lurk_points: Array[Vector3] = []     # shaded stretches of the radio->dock route (dawn ambush)
+var lighthouse_door := Vector3.ZERO
+var skiff_node: Node3D
 var water_materials: Array[ShaderMaterial] = []
 var checksum := 0
 var _headless := false
@@ -567,6 +569,12 @@ func _build_landmarks() -> void:
 	battery_spot.y = ground_y(battery_spot) + 0.02
 	for wp in gen.wood_piles:
 		wood_piles.append(wp)
+	if gen.expedition_ok:
+		lighthouse_door = Props.lighthouse(self, gen.lighthouse, grid)
+		lighthouse_door.y = ground_y(lighthouse_door)
+		Props.cottage(self, gen.cottage, atan2(gen.lighthouse.x - gen.cottage.x, gen.lighthouse.z - gen.cottage.z), grid)
+		skiff_node = Props.skiff(self, gen.skiff)
+		hide_spots.append(gen.cottage)
 	var route: PackedVector3Array = gen.routes.get("radio_dock", PackedVector3Array())
 	for i in range(6, route.size() - 4, 7):
 		var q: Vector3 = route[i]

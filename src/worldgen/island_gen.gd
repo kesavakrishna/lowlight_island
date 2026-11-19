@@ -45,6 +45,13 @@ var patrol_points: Array[Vector3] = []
 var spawn_points: Array[Vector3] = []
 var build_slots: Array[Dictionary] = []
 var wood_piles: Array[Dictionary] = []   # {pos, amount}: some near the wreck, spares farther out
+# Expedition content (optional; never a reason to reject an island)
+var expedition_ok := false
+var lighthouse := Vector3.INF
+var cottage := Vector3.INF
+var skiff := Vector3.INF
+var skiff_parts: Array[Dictionary] = []  # {kind, pos}
+var notes: Array[Dictionary] = []        # {id, pos}
 var routes: Dictionary = {}            # name -> PackedVector3Array
 var times: Dictionary = {}             # name -> seconds
 var shares: Dictionary = {}            # biome name -> share of land
@@ -94,6 +101,7 @@ func generate_attempt(p_seed: int, p_attempt: int) -> bool:
 		return false
 	_place_burrows_and_patrols()
 	_place_wood()
+	_place_expedition()
 	if caves.size() < 2:
 		reject_reason = "fewer than two usable caves"
 		return false
@@ -181,6 +189,12 @@ func _reset() -> void:
 	spawn_points.clear()
 	build_slots.clear()
 	wood_piles.clear()
+	skiff_parts.clear()
+	notes.clear()
+	expedition_ok = false
+	lighthouse = Vector3.INF
+	cottage = Vector3.INF
+	skiff = Vector3.INF
 	routes.clear()
 	times.clear()
 	shares.clear()
@@ -919,6 +933,94 @@ func _place_wood() -> void:
 				far = false
 		if far:
 			wood_piles.append({"pos": p2, "amount": Tuning.wood_far_amount})
+
+
+## The keeper's lighthouse and cottage, the old skiff and its three parts, and her notes.
+## Placed last so earlier generation (and validation) is unaffected; skipped if any piece
+## can't be reached on foot.
+func _place_expedition() -> void:
+	var span := n * cell
+	var reach := func(p: Vector3) -> bool: return not astar.get_id_path(to_cell(crash), to_cell(p)).is_empty()
+	var coast_cells: Array = []
+	for k in n * n:
+		if _main[k] == 1 and blocked[k] == 0 and biome[k] == Biome.COAST:
+			var c := Vector2i(k % n, k / n)
+			if _near_sea(c, 4) and _flat(c, 1, 1.0):
+				coast_cells.append(c)
+	if coast_cells.size() < 10:
+		return
+	var lh := _pick(coast_cells, func(c: Vector2i) -> float:
+		var p := cell_center(c)
+		return minf(p.distance_to(crash), p.distance_to(dock)) - absf(p.distance_to(radio) - span * 0.35) * 0.3, 0.1)
+	lighthouse = cell_center(lh)
+	# Cottage a short walk inland from the lighthouse.
+	var inland := Vector3(-lighthouse.x, 0, -lighthouse.z).normalized()
+	for ang in [0.0, 0.5, -0.5, 1.0, -1.0, 1.5, -1.5]:
+		for d in [16.0, 22.0, 12.0, 28.0, 34.0]:
+			var q: Vector3 = lighthouse + inland.rotated(Vector3.UP, ang) * d
+			var qc := to_cell(q)
+			if inside(qc) and is_walkable_cell(qc) and _main[idx(qc)] == 1 and _flat(qc, 1, 1.0):
+				cottage = cell_center(qc)
+				break
+		if cottage != Vector3.INF:
+			break
+	var cove_cells: Array = coast_cells.filter(func(c: Vector2i) -> bool: return cell_center(c).distance_to(dock) >= 55.0 and cell_center(c).distance_to(lighthouse) > 25.0)
+	if cove_cells.is_empty():
+		return
+	var sk := _pick(cove_cells, func(c: Vector2i) -> float:
+		var p := cell_center(c)
+		return minf(minf(p.distance_to(dock), p.distance_to(lighthouse)), p.distance_to(crash) * 0.8), 0.15)
+	skiff = cell_center(sk)
+	if cottage == Vector3.INF or skiff.distance_to(dock) < 50.0:
+		return
+	# Parts: the motor head in a cave, fuel under a big tree, oars with the nets on a beach.
+	if not caves.is_empty():
+		var cv: Dictionary = caves[rng.randi() % caves.size()]
+		var head: Vector3 = (cv["origin"] as Vector3) + Basis(Vector3.UP, int(cv["facing"]) * PI * 0.5) * Vector3(1.5, 0, -4.5)
+		var mouth: Vector3 = (cv["origin"] as Vector3) + Basis(Vector3.UP, int(cv["facing"]) * PI * 0.5) * Vector3(0, 0, 4.0)
+		skiff_parts.append({"kind": "motor", "pos": head, "reach": mouth})
+	var big: Array = []
+	for t in trees:
+		if t["type"] == "rough" and (t["pos"] as Vector3).distance_to(crash) > 40.0 and (t["pos"] as Vector3).distance_to(skiff) > 40.0:
+			big.append(t)
+	if not big.is_empty():
+		var bt: Dictionary = big[rng.randi() % big.size()]
+		var fp: Vector3 = (bt["pos"] as Vector3) + Vector3(1.6, 0, 0.6)
+		var fc := to_cell(fp)
+		fp = cell_center(nearest_open(fc))
+		skiff_parts.append({"kind": "fuel", "pos": fp})
+	var far_coast: Array = coast_cells.filter(func(c: Vector2i) -> bool: return cell_center(c).distance_to(skiff) > 45.0 and cell_center(c).distance_to(crash) > 30.0)
+	if not far_coast.is_empty():
+		skiff_parts.append({"kind": "oars", "pos": cell_center(far_coast[rng.randi() % far_coast.size()])})
+	if skiff_parts.size() < 3:
+		return
+	for pt in skiff_parts:
+		if not reach.call(pt.get("reach", pt["pos"])):
+			return
+	for lm in [lighthouse, cottage, skiff]:
+		if not reach.call(lm):
+			return
+	# Notes: the wreck sketch, two at the cottage, then the shed, a cave, the dock,
+	# the lighthouse and the skiff's cove.
+	var cv0: Dictionary = caves[0] if not caves.is_empty() else {}
+	var cave_note: Vector3 = (cv0["origin"] as Vector3) + Basis(Vector3.UP, int(cv0["facing"]) * PI * 0.5) * Vector3(-1.8, 0, -5.4) if not cv0.is_empty() else cottage
+	var spots := [crash + Vector3(2.0, 0, 2.0), cottage + Vector3(0.8, 0, 0.4), cottage + Vector3(-0.8, 0, -0.6),
+		radio + Vector3(0.9, 0, -1.2), cave_note, dock, lighthouse + Vector3(1.2, 0, 1.2), skiff + Vector3(2.0, 0, 0)]
+	for i in spots.size():
+		var sp: Vector3 = spots[i]
+		sp.y = height_at(sp.x, sp.z)
+		notes.append({"id": i, "pos": sp})
+	expedition_ok = true
+
+
+func nearest_open(c: Vector2i) -> Vector2i:
+	for r in range(0, 5):
+		for dj in range(-r, r + 1):
+			for di in range(-r, r + 1):
+				var q := c + Vector2i(di, dj)
+				if is_walkable_cell(q):
+					return q
+	return c
 
 
 ## Short summary for logs and the preview tool.
