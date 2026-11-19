@@ -1821,7 +1821,17 @@ func _rpc_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 	_on_event(kind, pos, data)
 
 
+const CAPTIONS := {
+	"ccall": "A call from underground", "call": "A long call", "screech": "A screech", "chitter": "Clicking",
+	"branch": "Branches rustling", "door": "A door creaks", "rattle": "A rattle", "hammer": "Hammering",
+	"dig": "Earth shifting", "surface": "The ground heaves", "engine": "An engine", "lamp": "",
+	"deck_shake": "The canopy shaking", "rope": "A rope whirring", "shriek": "A shriek",
+}
+
+
 func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
+	if hud and CAPTIONS.get(kind, "") != "":
+		hud.caption(CAPTIONS[kind], pos)
 	var lp := local_player
 	var near_tree: bool = lp != null and data.has("tree") and lp.tree_id == data["tree"]
 	match kind:

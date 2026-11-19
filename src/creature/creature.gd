@@ -1302,6 +1302,8 @@ func _process(delta: float) -> void:
 		if _step_timer <= 0.0:
 			_step_timer = clampf(1.6 / maxf(_vis_speed, 0.5), 0.22, 0.8)
 			var st: Array = Body.STEPS.get(ctype, Body.STEPS["stalker"])
+			if match_ref.hud and match_ref.local_player and match_ref.local_player.global_position.distance_to(global_position) < 16.0:
+				match_ref.hud.caption("Footsteps that aren't ours", global_position)
 			Sfx.play_3d(st[0], global_position, st[2] + sw * 6.0, st[1] * _rng.randf_range(0.9, 1.05), 40.0)
 	if not climbing_pose:
 		_lay_track(Vector2(moved.x, moved.z).length())

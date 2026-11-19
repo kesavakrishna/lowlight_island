@@ -31,6 +31,7 @@ func _ready() -> void:
 	env.tonemap_exposure = 1.0
 	env.fog_enabled = true
 	env.fog_sky_affect = 0.35
+	env.adjustment_enabled = true
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
@@ -107,6 +108,7 @@ func _update() -> void:
 	env.fog_light_color = horizon.lerp(Color(0.015, 0.018, 0.03), darkness * 0.7)
 	env.fog_density = lerpf(0.0022, 0.035, darkness)
 
+	env.adjustment_brightness = Settings.brightness
 	var world: Node = match_ref.world
 	if world and "water_materials" in world:
 		for w in world.water_materials:

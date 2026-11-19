@@ -6,6 +6,8 @@ extends CanvasLayer
 const D = preload("res://src/core/defs.gd")
 const SettingsPanel = preload("res://src/ui/settings_panel.gd")
 const Preview = preload("res://src/worldgen/preview.gd")
+const Hints = preload("res://src/ui/hints.gd")
+const HowToPlay = preload("res://src/ui/how_to_play.gd")
 
 var match_ref: Node = null
 
@@ -36,6 +38,9 @@ var _note_panel: PanelContainer
 var _note_title: Label
 var _note_body: Label
 var _note_t := 0.0
+var hints: Control
+var _captions: VBoxContainer
+var _how: Control
 var _nerve_veil: TextureRect
 var _nerve_label: Label
 
@@ -147,6 +152,16 @@ func _ready() -> void:
 	_debug.visible = false
 	_debug.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
 
+	hints = Hints.new()
+	hints.match_ref = match_ref
+	root.add_child(hints)
+	_captions = VBoxContainer.new()
+	_captions.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	_captions.position = Vector2(-420, -230)
+	_captions.size = Vector2(400, 150)
+	_captions.alignment = BoxContainer.ALIGNMENT_END
+	_captions.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_captions)
 	_build_map(root)
 	_note_panel = PanelContainer.new()
 	var sb := StyleBoxFlat.new()
@@ -154,9 +169,14 @@ func _ready() -> void:
 	sb.set_corner_radius_all(3)
 	sb.set_content_margin_all(18)
 	_note_panel.add_theme_stylebox_override("panel", sb)
-	_note_panel.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_note_panel.position = Vector2(-470, -150)
-	_note_panel.custom_minimum_size = Vector2(440, 0)
+	_note_panel.anchor_left = 1.0
+	_note_panel.anchor_right = 1.0
+	_note_panel.anchor_top = 0.5
+	_note_panel.anchor_bottom = 0.5
+	_note_panel.offset_left = -470.0
+	_note_panel.offset_right = -30.0
+	_note_panel.offset_top = -160.0
+	_note_panel.offset_bottom = 60.0
 	_note_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_note_panel.visible = false
 	root.add_child(_note_panel)
@@ -370,7 +390,7 @@ func _build_pause(root: Control) -> void:
 	controls.text = "WASD move · Shift sprint · Ctrl/C crouch · Z prone · Space jump/stand/climb down\nE interact (hold to revive) · F lantern shutter · G throw noisemaker · R rope\nQ put the battery down · V build / repair (wood) · M map · H rest\nLeft click shove · hold 1 / 3 lean · X move / B danger / N hold ping · Space into a ledge to climb over\nF3 creature debug overlay · F6 skip phase (host, dev)"
 	controls.add_theme_font_size_override("font_size", 15)
 	_pause_main.add_child(controls)
-	for b in [["Resume", _resume], ["Settings", _open_settings], ["Leave run", _leave]]:
+	for b in [["Resume", _resume], ["How to play", _open_how], ["Settings", _open_settings], ["Leave run", _leave]]:
 		var btn := Button.new()
 		btn.text = b[0]
 		btn.pressed.connect(b[1])
@@ -415,6 +435,17 @@ func _resume() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
+func _open_how() -> void:
+	_pause_main.visible = false
+	if _how == null:
+		_how = HowToPlay.new()
+		_how.closed.connect(func() -> void:
+			_how.visible = false
+			_pause_main.visible = true)
+		_settings.get_parent().add_child(_how)
+	_how.visible = true
+
+
 func _open_settings() -> void:
 	_pause_main.visible = false
 	_settings.visible = true
@@ -426,6 +457,32 @@ func _leave() -> void:
 
 
 # ------------------------------------------------------------------ API used by match
+
+## Optional captions for notable sounds (Settings.captions), with a rough direction.
+func caption(text: String, pos: Vector3) -> void:
+	if not Settings.captions or match_ref == null or match_ref.local_player == null:
+		return
+	var p: Node = match_ref.local_player
+	var d: Vector3 = pos - p.global_position
+	var ang := wrapf(atan2(-d.x, -d.z) - float(match_ref.look_yaw), -PI, PI)
+	var dir := "ahead" if absf(ang) < 0.6 else ("behind" if absf(ang) > 2.5 else ("left" if ang > 0.0 else "right"))
+	for c in _captions.get_children():
+		if (c as Label).text.begins_with(text):
+			c.queue_free()
+	var l := Label.new()
+	l.text = "%s (%s)" % [text, dir]
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	l.add_theme_font_size_override("font_size", 16)
+	l.add_theme_color_override("font_color", Color(0.85, 0.88, 0.9))
+	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.9))
+	_captions.add_child(l)
+	while _captions.get_child_count() > 5:
+		_captions.get_child(0).free()
+	var tw := l.create_tween()
+	tw.tween_interval(3.0)
+	tw.tween_property(l, "modulate:a", 0.0, 1.0)
+	tw.tween_callback(l.queue_free)
+
 
 func notice(text: String) -> void:
 	var l := Label.new()

@@ -2,6 +2,7 @@ extends Control
 ## Title screen, Host / Join by Address, lobby roster and settings.
 
 const SettingsPanel = preload("res://src/ui/settings_panel.gd")
+const HowToPlay = preload("res://src/ui/how_to_play.gd")
 
 var _status: Label
 var _name: LineEdit
@@ -14,6 +15,7 @@ var _roster: Label
 var _start: Button
 var _hosting_info: Label
 var _give_up: Button
+var _how: Control
 
 
 func _ready() -> void:
@@ -64,6 +66,7 @@ func _ready() -> void:
 	var row2 := HBoxContainer.new()
 	row2.add_theme_constant_override("separation", 10)
 	_main_box.add_child(row2)
+	_button(row2, "How to play", _on_how)
 	_button(row2, "Settings", _on_settings)
 	_button(row2, "Quit", func() -> void: get_tree().quit())
 
@@ -85,6 +88,7 @@ func _ready() -> void:
 	lrow.add_theme_constant_override("separation", 10)
 	_lobby_box.add_child(lrow)
 	_start = _button(lrow, "Start run", func() -> void: Net.start_match())
+	_button(lrow, "How to play", _on_how)
 	_button(lrow, "Leave", func() -> void: Net.leave_session())
 
 	_settings = SettingsPanel.new()
@@ -162,6 +166,18 @@ func _on_join() -> void:
 		_status.text = "Could not start connecting (error %d)." % err
 
 
+func _on_how() -> void:
+	_main_box.visible = false
+	_lobby_box.visible = false
+	if _how == null:
+		_how = HowToPlay.new()
+		_how.closed.connect(func() -> void:
+			_how.visible = false
+			_refresh())
+		_settings.get_parent().add_child(_how)
+	_how.visible = true
+
+
 func _on_settings() -> void:
 	_main_box.visible = false
 	_settings.visible = true
@@ -184,6 +200,8 @@ func _refresh() -> void:
 	if _give_up:
 		_give_up.visible = false
 	var in_lobby := Net.in_session and not Net.roster.is_empty()
+	if _how and _how.visible:
+		return
 	_lobby_box.visible = in_lobby
 	_main_box.visible = not in_lobby and not _settings.visible
 	if not in_lobby:

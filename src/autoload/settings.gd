@@ -10,6 +10,21 @@ var fov := 80.0
 var camera_shake := 1.0         # 0 disables shake
 var master_volume := 0.8
 var show_nerve := false         # optional numeric Nerve meter (default: body and senses only)
+var show_hints := true          # first-run contextual hints
+var hints_seen: Dictionary = {}
+var captions := false           # text captions for notable sounds
+var brightness := 1.0
+var bindings: Dictionary = {}   # action -> [physical keycode or -mouse button]
+
+## Actions players can rebind, with their labels.
+const REBINDABLE := [
+	["move_forward", "Forward"], ["move_back", "Back"], ["move_left", "Left"], ["move_right", "Right"],
+	["sprint", "Sprint"], ["crouch", "Crouch"], ["prone", "Prone"], ["jump", "Jump / stand"],
+	["interact", "Interact"], ["lantern", "Lantern"], ["throw", "Throw noisemaker"], ["shove", "Shove"],
+	["drop", "Drop battery"], ["repair", "Build / repair"], ["rope", "Rope down"], ["rest", "Rest"],
+	["lean_left", "Lean left"], ["lean_right", "Lean right"], ["ping", "Ping: move"],
+	["ping_danger", "Ping: danger"], ["ping_hold", "Ping: hold"], ["map", "Map"],
+]
 var player_name := "Survivor"
 var last_address := "127.0.0.1"
 
@@ -27,6 +42,13 @@ func load_settings() -> void:
 		camera_shake = cfg.get_value("video", "camera_shake", camera_shake)
 		master_volume = cfg.get_value("audio", "master_volume", master_volume)
 		show_nerve = cfg.get_value("video", "show_nerve", show_nerve)
+		show_hints = cfg.get_value("help", "show_hints", show_hints)
+		hints_seen = cfg.get_value("help", "hints_seen", hints_seen)
+		captions = cfg.get_value("help", "captions", captions)
+		brightness = cfg.get_value("video", "brightness", brightness)
+		bindings = cfg.get_value("controls", "bindings", bindings)
+		for action in bindings:
+			_apply_binding(action, bindings[action])
 		player_name = cfg.get_value("profile", "name", player_name)
 		last_address = cfg.get_value("profile", "last_address", last_address)
 	apply()
@@ -39,6 +61,11 @@ func save_settings() -> void:
 	cfg.set_value("video", "camera_shake", camera_shake)
 	cfg.set_value("audio", "master_volume", master_volume)
 	cfg.set_value("video", "show_nerve", show_nerve)
+	cfg.set_value("help", "show_hints", show_hints)
+	cfg.set_value("help", "hints_seen", hints_seen)
+	cfg.set_value("help", "captions", captions)
+	cfg.set_value("video", "brightness", brightness)
+	cfg.set_value("controls", "bindings", bindings)
 	cfg.set_value("profile", "name", player_name)
 	cfg.set_value("profile", "last_address", last_address)
 	cfg.save(PATH)
@@ -80,6 +107,38 @@ func _setup_input() -> void:
 	_key("debug_overlay", [KEY_F3])
 	_key("dev_skip_phase", [KEY_F6])
 	_key("pause", [KEY_ESCAPE])
+
+
+## Replace an action's inputs with one key (positive code) or mouse button (negative code).
+func rebind(action: String, code: int) -> void:
+	bindings[action] = [code]
+	_apply_binding(action, [code])
+	save_settings()
+
+
+func _apply_binding(action: String, codes: Array) -> void:
+	if not InputMap.has_action(action):
+		return
+	InputMap.action_erase_events(action)
+	for c in codes:
+		if int(c) < 0:
+			var mb := InputEventMouseButton.new()
+			mb.button_index = -int(c)
+			InputMap.action_add_event(action, mb)
+		else:
+			var ev := InputEventKey.new()
+			ev.physical_keycode = int(c)
+			InputMap.action_add_event(action, ev)
+
+
+func binding_text(action: String) -> String:
+	var names: Array[String] = []
+	for ev in InputMap.action_get_events(action):
+		if ev is InputEventKey:
+			names.append(OS.get_keycode_string(ev.physical_keycode))
+		elif ev is InputEventMouseButton:
+			names.append(["", "Left click", "Right click", "Middle click"][clampi(ev.button_index, 0, 3)] if ev.button_index <= 3 else "Mouse %d" % ev.button_index)
+	return " / ".join(names)
 
 
 func _key(action: String, keys: Array) -> void:
