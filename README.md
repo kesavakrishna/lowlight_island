@@ -3,13 +3,14 @@
 First-person online co-op survival horror for 2–4 friends, built with **Godot 4.7 + GDScript**.
 The full design brief lives in [LOWLIGHT_ISLAND.md](LOWLIGHT_ISLAND.md).
 
-## Status: milestones 1–2 (test clearing)
+## Status: milestones 1–3
 
 | Milestone | State |
 |---|---|
-| 1. Smallest connected test | Done: first-person clearing, host-authoritative movement with client prediction, Host / Join by Address, shared day–dusk–night–dawn clock, placeholder geometry |
-| 2. Prove the night | Done in the fixture: the Stalker (sight + light + weak hearing), line-of-sight and lost-sight search, tall grass and bush hiding, three climbable tree types (low branches, rough trunk, bare trunk + ladder), deck + rope exit, cave door with intact / damaged / broken states and a prone-only crawl exit, witnessed-climb commitment, bark-scrape and breach cues with on-screen direction arrows, noisemaker decoys, down / crawl / revive. **Remote (non-LAN) test still to do — see below.** |
-| 3. Procedural islands | Next |
+| 1. Smallest connected test | Done: first-person co-op, host-authoritative movement with client prediction, Host / Join by Address, shared day–dusk–night–dawn clock |
+| 2. Prove the night | Done in the test clearing (`--world=clearing`): the Stalker (sight + light + weak hearing), lost-sight search, grass / bush / canopy hiding, three climbable tree types, deck + rope exit, cave door with intact / damaged / broken states and a prone-only crawl exit, witnessed-climb commitment, directional cue arrows, noisemakers, down / crawl / revive. **Remote (non-LAN) test still to do — see below.** |
+| 3. Seeds make new worlds | Done: every run generates and validates a new island (coast, grassland, forest, mountains, swamp; caves cut into cliffs; crash, battery, radio and dock), rebuilt identically on every peer and dressed with the v2 prototype's Canopy Realism models, sky and water. `--preview-seeds` renders route-checked maps. |
+| 4. One full escape run | Next: gathering, battery carry / drop / install, broadcast, repeating nights with escalation, dawn boarding, win / loss |
 
 ## Prototype v2 (reference)
 
@@ -64,9 +65,20 @@ escalation caps, climbing / rope / bare-trunk drop, grass concealment, witnessed
 noisemaker lure, door breach, crawl tunnel, crew loss) and a two-instance ENet smoke test
 (host + scripted bot client).
 
+### Seed preview
+
+```
+godot --headless --path . -- --preview-seeds=1-12 --out=previews
+```
+Writes one coloured, hill-shaded map per seed plus `contact_sheet.png`, and prints each island's route
+times, biome shares and any rejected attempts. Legend: red crash, yellow battery, magenta radio, cyan dock,
+black caves, brown burrows; white / orange / pink / cyan lines are the crash→battery walk, the two
+battery→radio carry routes and radio→dock.
+
 Useful dev flags (after `--`): `--host`, `--join=ADDR`, `--port=N`, `--name=S`, `--autostart=N`,
-`--seed=N`, `--fast-clock=X`, `--start-phase=night`, `--log-ai`, `--bot`, `--quit-after=S`,
-`--screenshot=FILE`, `--view=x,y,z,yaw,pitch[,stance]`, `--lantern`.
+`--seed=N`, `--world=clearing`, `--fast-clock=X`, `--start-phase=night`, `--log-ai`, `--bot`,
+`--quit-after=S`, `--screenshot=FILE`, `--view=x,y,z,yaw,pitch[,stance]`, `--freeze`, `--lantern`,
+`--preview-seeds=A-B`, `--out=DIR`.
 
 ## Layout
 

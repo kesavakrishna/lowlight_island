@@ -1,21 +1,27 @@
 extends Node3D
-## Client-side sky, sun/moon, ambient and fog driven by the shared clock.
+## Client-side sky, sun and moon, ambient light, fog and water tint driven by the shared clock.
+## Uses the v2 prototype's Canopy Realism sky (clouds, stars, moon disc).
 ## Purely cosmetic: creature detection never reads anything from here.
 
 const D = preload("res://src/core/defs.gd")
 
 var match_ref: Node = null
 var env: Environment
-var sky_mat: ProceduralSkyMaterial
-var light: DirectionalLight3D
+var sky_mat: ShaderMaterial
+var sun: DirectionalLight3D
+var moon: DirectionalLight3D
 var wind: AudioStreamPlayer
 var drone: AudioStreamPlayer
 
 
 func _ready() -> void:
-	sky_mat = ProceduralSkyMaterial.new()
+	sky_mat = ShaderMaterial.new()
+	sky_mat.shader = load("res://assets/shaders/sky.gdshader")
+	sky_mat.set_shader_parameter("cloud_map", load("res://assets/textures/weather_noise.res"))
 	var sky := Sky.new()
 	sky.sky_material = sky_mat
+	sky.process_mode = Sky.PROCESS_MODE_REALTIME
+	sky.radiance_size = Sky.RADIANCE_SIZE_64
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
@@ -24,15 +30,13 @@ func _ready() -> void:
 	env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	env.tonemap_exposure = 1.0
 	env.fog_enabled = true
-	env.fog_sky_affect = 0.85
+	env.fog_sky_affect = 0.35
 	var we := WorldEnvironment.new()
 	we.environment = env
 	add_child(we)
-	light = DirectionalLight3D.new()
-	light.shadow_enabled = true
-	light.directional_shadow_max_distance = 70.0
-	light.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
-	add_child(light)
+	sun = _light(80.0)
+	moon = _light(70.0)
+	moon.light_color = Color("9cbcf0")
 	wind = Sfx.make_loop("wind", -14.0)
 	add_child(wind)
 	drone = Sfx.make_loop("drone", -40.0)
@@ -43,8 +47,26 @@ func _ready() -> void:
 	_update()
 
 
+func _light(shadow_dist: float) -> DirectionalLight3D:
+	var l := DirectionalLight3D.new()
+	l.shadow_enabled = true
+	l.directional_shadow_max_distance = shadow_dist
+	l.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	add_child(l)
+	return l
+
+
 func _process(_delta: float) -> void:
 	_update()
+
+
+## Continuous sun path: rises through dawn, crosses the day, sets during dusk.
+func _sun_phase(phase: int, f: float) -> float:
+	match phase:
+		D.Phase.DAWN: return lerpf(-0.08, 0.04, f)
+		D.Phase.DAY: return lerpf(0.04, 0.86, f)
+		D.Phase.DUSK: return lerpf(0.86, 1.06, f)
+	return 1.2   # night: well below the horizon
 
 
 func _update() -> void:
@@ -52,47 +74,47 @@ func _update() -> void:
 		return
 	var phase: int = match_ref.phase
 	var f: float = clampf(match_ref.phase_time / Tuning.phase_length(phase), 0.0, 1.0)
-	var day: float = match_ref.daylight()
-	var elev := 0.0
-	var az := 0.0
-	var col := Color(1.0, 0.96, 0.88)
-	var energy := 1.15
-	match phase:
-		D.Phase.DAY:
-			elev = lerpf(25.0, 62.0, sin(PI * f) * 0.9 + 0.1 * f)
-			az = lerpf(-60.0, 60.0, f)
-			col = Color(1.0, 0.95, 0.85)
-		D.Phase.DUSK:
-			elev = lerpf(22.0, 2.0, f)
-			az = lerpf(60.0, 80.0, f)
-			col = Color(1.0, 0.95, 0.85).lerp(Color(1.0, 0.45, 0.25), f)
-			energy = lerpf(1.1, 0.25, f)
-		D.Phase.NIGHT:
-			# Moonlight: dim, cool, still casts shadows so silhouettes read.
-			elev = 42.0
-			az = -30.0
-			col = Color(0.55, 0.65, 0.95)
-			energy = 0.13
-		D.Phase.DAWN:
-			elev = lerpf(3.0, 20.0, f)
-			az = lerpf(-80.0, -60.0, f)
-			col = Color(1.0, 0.6, 0.45).lerp(Color(1.0, 0.92, 0.85), f)
-			energy = lerpf(0.15, 1.0, f)
-	light.rotation_degrees = Vector3(-elev, az, 0)
-	light.light_color = col
-	light.light_energy = energy
-	var night := 1.0 - day
-	sky_mat.sky_top_color = Color(0.32, 0.47, 0.68).lerp(Color(0.008, 0.01, 0.025), night)
-	sky_mat.sky_horizon_color = Color(0.68, 0.72, 0.74).lerp(Color(0.03, 0.035, 0.05), night)
-	if phase == D.Phase.DUSK or phase == D.Phase.DAWN:
-		sky_mat.sky_horizon_color = sky_mat.sky_horizon_color.lerp(Color(0.6, 0.3, 0.2), 0.5 * sin(PI * f))
-	sky_mat.ground_bottom_color = Color(0.1, 0.1, 0.09).lerp(Color(0.005, 0.005, 0.008), night)
-	sky_mat.ground_horizon_color = sky_mat.sky_horizon_color
-	sky_mat.sun_angle_max = 20.0
-	env.ambient_light_color = Color(0.55, 0.6, 0.65).lerp(Color(0.25, 0.3, 0.45), night)
-	env.ambient_light_energy = lerpf(0.55, 0.075, night)
-	env.fog_light_color = Color(0.62, 0.66, 0.7).lerp(Color(0.015, 0.018, 0.03), night)
-	env.fog_density = lerpf(0.006, 0.035, night)
+	var sp := _sun_phase(phase, f)
+	var solar_height := sin(sp * PI) if sp < 1.1 else -0.6
+	var sun_dir := Vector3(cos(sp * PI) * 0.88, solar_height, 0.42).normalized()
+	var night_f := f if phase == D.Phase.NIGHT else (0.0 if phase == D.Phase.DUSK else 1.0)
+	var moon_dir := Vector3(-cos(night_f * PI) * 0.7, 0.28 + 0.5 * sin(night_f * PI), -0.45).normalized()
+	var darkness := 1.0 - smoothstep(-0.14, 0.15, solar_height)
+	var warm := (1.0 - smoothstep(0.08, 0.56, absf(solar_height))) * (1.0 - darkness * 0.78)
+	var sunlight := smoothstep(-0.03, 0.25, solar_height)
+
+	var horizon := Color("c4dcec").lerp(Color("e8b488"), warm).lerp(Color("1c2a42"), darkness)
+	var upper := Color("3d7cc0").lerp(Color("5b6aa0"), warm).lerp(Color("070e1e"), darkness)
+	sky_mat.set_shader_parameter("upper", upper)
+	sky_mat.set_shader_parameter("horizon", horizon)
+	sky_mat.set_shader_parameter("cloud_color", Color("fbfcff").lerp(Color("f4c49c"), warm).lerp(Color("1e2a3e"), darkness))
+	sky_mat.set_shader_parameter("night", darkness)
+	sky_mat.set_shader_parameter("twilight", warm)
+	sky_mat.set_shader_parameter("sun_direction", sun_dir)
+	sky_mat.set_shader_parameter("moon_direction", moon_dir)
+
+	sun.look_at_from_position(Vector3.ZERO, -sun_dir, Vector3.UP if absf(sun_dir.y) < 0.99 else Vector3.FORWARD)
+	sun.light_color = Color("fff3de").lerp(Color("f4a468"), warm)
+	sun.light_energy = sunlight * (1.16 - warm * 0.27)
+	sun.visible = sunlight > 0.012
+	moon.look_at_from_position(Vector3.ZERO, -moon_dir, Vector3.UP)
+	# Moonlight stays readable across open ground: silhouettes must survive the dark.
+	moon.light_energy = darkness * (0.10 + 0.14 * maxf(moon_dir.y, 0.0))
+	moon.visible = darkness > 0.02
+
+	env.ambient_light_color = Color(0.55, 0.6, 0.65).lerp(Color(0.25, 0.3, 0.45), darkness)
+	env.ambient_light_energy = lerpf(0.55, 0.075, darkness)
+	env.fog_light_color = horizon.lerp(Color(0.015, 0.018, 0.03), darkness * 0.7)
+	env.fog_density = lerpf(0.0022, 0.035, darkness)
+
+	var world: Node = match_ref.world
+	if world and "water_materials" in world:
+		for w in world.water_materials:
+			w.set_shader_parameter("sky_tint", horizon)
+			w.set_shader_parameter("zenith", upper)
+			w.set_shader_parameter("sun_direction", sun_dir)
+			w.set_shader_parameter("moon_direction", moon_dir)
+			w.set_shader_parameter("night", darkness)
 	if drone.stream:
-		drone.volume_db = lerpf(-40.0, -16.0, night)
-		wind.volume_db = lerpf(-14.0, -19.0, night)
+		drone.volume_db = lerpf(-40.0, -16.0, darkness)
+		wind.volume_db = lerpf(-14.0, -19.0, darkness)

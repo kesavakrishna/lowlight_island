@@ -26,6 +26,8 @@ var tree_id := -1
 var cover := ""
 var inside_cave := false
 var cave_id := -1
+var speed_mult := 1.0            # terrain multiplier (wading), set before simulate()
+var last_dry := Vector3.ZERO
 var revive_progress := 0.0
 var downed_time := 0.0
 
@@ -255,7 +257,7 @@ func simulate(inp: Dictionary, delta: float) -> void:
 		if regen_timer <= 0.0:
 			stamina = minf(Tuning.stamina_max, stamina + Tuning.stamina_regen * delta)
 
-	var target := dir * speed
+	var target := dir * speed * speed_mult
 	var hv := Vector3(velocity.x, 0, velocity.z).move_toward(target, Tuning.accel * delta)
 	velocity.x = hv.x
 	velocity.z = hv.z

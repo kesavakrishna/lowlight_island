@@ -34,6 +34,8 @@ func _ready() -> void:
 	Net.left_session.connect(_on_left)
 	if opts.has("seed"):
 		Net.forced_seed = int(opts["seed"])
+	if opts.has("world"):
+		Net.world_kind = str(opts["world"])
 	if opts.has("fast-clock"):
 		Tuning.clock_scale = float(opts["fast-clock"])
 	_show_menu()
@@ -99,6 +101,8 @@ func _on_match_begin(params: Dictionary) -> void:
 		match_node.look_pitch = deg_to_rad(v[4]) if v.size() > 4 else 0.0
 		if v.size() > 5:
 			match_node.want_stance = int(v[5])
+		if opts.has("freeze"):
+			match_node.local_player.mode = D.Mode.PERCHED   # dev: hold the camera in place
 	if opts.has("lantern") and match_node.local_player:
 		match_node.local_player.lantern_open = true
 		match_node.request("lantern", true)

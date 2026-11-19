@@ -560,18 +560,29 @@ func _carve_cave(c: Vector2i, facing: int) -> void:
 	var floor_h := height[idx(c)]
 	var out: Vector2i = DIRS4[facing]
 	var right: Vector2i = RIGHTS[facing]
-	# Footprint (local z -4..1 cells, x -2..2) at floor height; the rock around it stays as cliff.
-	for dz in range(-4, 2):
+	# Rock over the cave: the terrain mesh is cut out under the cave scene (island_world.gd),
+	# so these vertices only shape the slopes that meet its roof.
+	for dz in range(-4, 0):
 		for dx in range(-2, 3):
 			var nc: Vector2i = c + out * dz + right * dx
 			if inside(nc):
-				height[idx(nc)] = floor_h
+				height[idx(nc)] = maxf(height[idx(nc)], floor_h + 3.6)
+	# Mouth and approach at floor height.
+	for dz in range(0, 3):
+		for dx in range(-2, 3):
+			var nf: Vector2i = c + out * dz + right * dx
+			if inside(nf):
+				height[idx(nf)] = floor_h
 	# A trench on the local -X side from the crawl exit back out to the front.
 	for dz in range(-3, 2):
 		for dx in range(-4, -2):
 			var nc2: Vector2i = c + out * dz + right * dx
 			if inside(nc2):
 				height[idx(nc2)] = floor_h
+	for dz in [-3, -2]:
+		var nw: Vector2i = c + out * dz + right * -2
+		if inside(nw):
+			height[idx(nw)] = floor_h
 
 
 # ================================================================== 5. routes

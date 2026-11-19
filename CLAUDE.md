@@ -10,6 +10,13 @@
 - The host is authoritative. Clients only send input (`_rpc_input`) and action requests (`request()` →
   `_handle_request`). Never let a client mutate shared state directly.
 - Keep world generation and gameplay rules independent of rendering (headless tests must run).
+- World generation must stay deterministic per (seed, attempt): use the generator's own `rng` and
+  `_shuffle`, never `randf()` / `Array.shuffle()`. The host validates a seed in `Net.start_match`, sends
+  seed + attempt + checksum, and every peer rebuilds the island (`island_world.gd`); a checksum mismatch
+  is logged.
+- Worlds share one interface (`island_world.gd`, `test_clearing.gd`): `grid`, `trees`, `caves`, `cave_at`,
+  `ground_y`, `cover_at`, `set_door`, ... Heights are never assumed to be 0.
+- Art from the v2 prototype is re-baked with LODs by `tools/bake_flora.gd` into `assets/flora/` (LFS).
 
 ## Commands (Godot binary: `$GODOT`, e.g. `../tools/godot/Godot_v4.7.2-stable_win64_console.exe`)
 
@@ -17,5 +24,7 @@
 - Just the suites: `$GODOT --headless --path . res://tests/test_runner.tscn`
 - Screenshot a view: `$GODOT --path . --resolution 1280x720 -- --host --autostart=1 --start-phase=night --view=x,y,z,yaw,pitch --lantern --screenshot=out.png`
 - AI trace: add `--log-ai` to a host run.
+- Island maps: `$GODOT --headless --path . -- --preview-seeds=1-12 --out=previews`
+- Re-bake models: `$GODOT --headless --path . --script res://tools/bake_flora.gd`
 
 New test suites: `tests/test_*.gd` extending `res://tests/suite.gd`; methods `test_*(runner)` may `await`.

@@ -40,8 +40,8 @@ static func build(parent: Node3D, grid: RefCounted, id: int, origin: Vector3, fa
 	root.name = "Cave%d" % id
 	root.transform = xf
 	parent.add_child(root)
-	var rock_dark := Geo.mat(Color(0.2, 0.2, 0.19))
-	var rock := Geo.mat(Color(0.33, 0.32, 0.3))
+	var rock_dark: Material = stone_material(Color(0.3, 0.29, 0.26))
+	var rock: Material = stone_material(Color(0.38, 0.37, 0.33))
 	var wood := Geo.mat(Color(0.45, 0.33, 0.2))
 	var wood_dark := Geo.mat(Color(0.28, 0.2, 0.12))
 
@@ -59,8 +59,9 @@ static func build(parent: Node3D, grid: RefCounted, id: int, origin: Vector3, fa
 			if r[0].y - r[1].y * 0.5 < 0.5:
 				var half := Vector2(r[1].x, r[1].z) * 0.5
 				_block_local(grid, xf, Vector2(r[0].x, r[0].z) - half, Vector2(r[0].x, r[0].z) + half, 0.35)
-	Geo.box(root, Vector3(6, 0.02, 7), Vector3(0, 0.01, -3.0), rock_dark, 0)
-	Geo.box(root, Vector3(2, 0.02, 1), Vector3(-4, 0.01, -5.5), rock_dark, 0)
+	# Stone floor with its own collision (on generated terrain the mesh is cut out here).
+	Geo.box(root, Vector3(6, 0.2, 7.2), Vector3(0, -0.1, -3.0), rock_dark, D.L_WORLD | D.L_SIGHT)
+	Geo.box(root, Vector3(2.6, 0.2, 1.2), Vector3(-4.2, -0.1, -5.5), rock_dark, D.L_WORLD | D.L_SIGHT)
 
 	# Door hinged at local x = -1, swings outward when open.
 	var pivot := Node3D.new()
@@ -103,6 +104,40 @@ static func build(parent: Node3D, grid: RefCounted, id: int, origin: Vector3, fa
 		"door_vis": {"intact": intact, "damaged": damaged, "broken": broken},
 	}
 	return cave
+
+
+static var _stone: Dictionary = {}
+
+## Bedded rock (the v2 prototype's surface shader) so caves match the cliffs around them.
+static func stone_material(color: Color) -> Material:
+	var key := color.to_html()
+	if _stone.has(key):
+		return _stone[key]
+	var shader: Shader = load("res://assets/shaders/surface.gdshader")
+	if shader == null:
+		return Geo.mat(color)
+	var m := ShaderMaterial.new()
+	m.shader = shader
+	m.set_shader_parameter("base_color", color)
+	m.set_shader_parameter("grain", Vector3(1.6, 1.6, 1.6))
+	m.set_shader_parameter("variation", 0.45)
+	m.set_shader_parameter("stone", true)
+	_stone[key] = m
+	return m
+
+
+## Re-open the interior cells on the walk grid (terrain over the cave reads as cliff).
+static func open_interior(cave: Dictionary, grid: RefCounted) -> void:
+	var xf: Transform3D = cave["xform"]
+	for lz in [-1.5, -3.0, -4.5, -5.8]:
+		for lx in [-2.0, -1.0, 0.0, 1.0, 2.0]:
+			grid.set_solid(grid.world_to_cell(xf * Vector3(lx, 0, lz)), false)
+
+
+## True if a terrain quad centred at world p is covered by this cave scene.
+static func covers(cave: Dictionary, p: Vector3) -> bool:
+	var l: Vector3 = (cave["xform"] as Transform3D).affine_inverse() * p
+	return l.x > -5.0 and l.x < 5.0 and l.z > -8.5 and l.z < 0.0
 
 
 static func contains(cave: Dictionary, p: Vector3) -> bool:

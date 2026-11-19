@@ -8,6 +8,7 @@ const Geo = preload("res://src/world/geo.gd")
 const PlayerScript = preload("res://src/player/player.gd")
 const CreatureScript = preload("res://src/creature/creature.gd")
 const Clearing = preload("res://src/world/test_clearing.gd")
+const IslandWorld = preload("res://src/world/island_world.gd")
 const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
 
@@ -51,6 +52,7 @@ var look_pitch := 0.0
 var want_stance: int = D.Stance.STAND
 var bot := false
 var _bot_t := 0.0
+var _bot_yaw0 := 0.0
 var _spawn_pos := Vector3.ZERO
 var smoke := {"snapshots": 0, "inputs": 0, "max_err": 0.0, "max_players": 0, "remote_moved": 0.0}
 
@@ -63,10 +65,21 @@ func _ready() -> void:
 	name = "Match"
 	is_server = multiplayer.is_server()
 	headless = DisplayServer.get_name() == "headless"
-	world = Clearing.new()
-	world.name = "World"
-	add_child(world)
-	world.build(int(params.get("seed", 0)))
+	var t_build := Time.get_ticks_msec()
+	if params.get("world", "clearing") == "island":
+		world = IslandWorld.new()
+		world.name = "World"
+		add_child(world)
+		if not world.build(int(params.get("seed", 0)), int(params.get("attempt", -1))):
+			push_error("could not rebuild the host's island")
+		elif params.has("checksum") and int(params["checksum"]) != world.checksum:
+			push_error("island checksum mismatch: host %d, here %d" % [int(params["checksum"]), world.checksum])
+	else:
+		world = Clearing.new()
+		world.name = "World"
+		add_child(world)
+		world.build(int(params.get("seed", 0)))
+	print("[match] world built in %d ms" % (Time.get_ticks_msec() - t_build))
 	if not headless:
 		env = EnvCtl.new()
 		env.match_ref = self
@@ -88,10 +101,16 @@ func _ready() -> void:
 	Net.peer_left.connect(_on_peer_left)
 	if local_player:
 		look_yaw = local_player.yaw
+		_bot_yaw0 = local_player.yaw
 		_spawn_pos = local_player.global_position
 	if is_server and dev_start_phase >= 0:
 		_set_phase(dev_start_phase)
 	print("[match] started seed=%d players=%d server=%s" % [int(params.get("seed", 0)), players.size(), is_server])
+	if "landmarks" in world:
+		var cave_txt := []
+		for c in world.caves:
+			cave_txt.append("%s f%d" % [c["door_point"].snapped(Vector3.ONE * 0.1), c["facing"]])
+		print("[match] island landmarks %s caves %s" % [world.landmarks, cave_txt])
 
 
 func _child_root(n: String) -> Node3D:
@@ -108,6 +127,7 @@ func _spawn_player(pid: int, info: Dictionary) -> void:
 	players_root.add_child(p)
 	var sp: Vector3 = world.spawn_points[slot % world.spawn_points.size()]
 	p.global_position = sp + Vector3(0, 0.05, 0)
+	p.last_dry = p.global_position
 	p.yaw = atan2(sp.x, sp.z)   # face the clearing center
 	players[pid] = p
 	if p.is_local:
@@ -258,7 +278,7 @@ func _bot_input(delta: float) -> Dictionary:
 		btn |= D.BTN_SPRINT
 	if _bot_t > 3.5:
 		mv = Vector2(sin(_bot_t), -0.5)
-	look_yaw = 0.3 * sin(_bot_t * 0.5)
+	look_yaw = _bot_yaw0 + 0.3 * sin(_bot_t * 0.5)
 	return {"mx": mv.x, "my": mv.y, "yaw": look_yaw, "pitch": 0.0, "stance": D.Stance.STAND, "btn": btn}
 
 
@@ -337,6 +357,7 @@ func _client_predict(delta: float) -> void:
 	var s: int = lp.seq
 	_rpc_input.rpc_id(1, s, inp["mx"], inp["my"], inp["yaw"], inp["pitch"], inp["stance"], inp["btn"])
 	if lp.mode == D.Mode.NORMAL or lp.mode == D.Mode.DOWNED:
+		lp.speed_mult = _move_mult(lp.global_position)
 		lp.simulate(inp, delta)
 		lp.history[s] = lp.global_position
 		if lp.history.size() > 240:
@@ -388,6 +409,7 @@ func _srv_apply(p: Node, inp: Dictionary, delta: float) -> void:
 		p.yaw = inp.get("yaw", p.yaw)
 		p.pitch = inp.get("pitch", p.pitch)
 		return
+	p.speed_mult = _move_mult(p.global_position)
 	p.simulate(inp, delta)
 
 
@@ -407,6 +429,14 @@ func _srv_post_step(p: Node, delta: float) -> void:
 		p.tree_id = world.deck_tree_at(pos)
 	if pos.y < world.ground_y(pos) - 10.0:
 		p.global_position = world.spawn_points[0]  # safety net, never lose an avatar
+	# Deep water: no swimming in v1. Turn back to the last dry footing.
+	if p.mode == D.Mode.NORMAL or p.mode == D.Mode.DOWNED:
+		if pos.y < 0.3 - 1.25 and world.has_method("in_water"):
+			p.global_position = p.last_dry
+			p.velocity = Vector3.ZERO
+			notify(p, "Too deep to wade any further.")
+		elif not _in_water(pos) and p.is_on_floor():
+			p.last_dry = pos
 	# Movement noise heard by creatures.
 	if (p.mode == D.Mode.NORMAL or p.mode == D.Mode.DOWNED) and p.moving:
 		p.step_timer -= delta
@@ -423,6 +453,9 @@ func _srv_post_step(p: Node, delta: float) -> void:
 			if p.cover == "grass" or p.cover == "bush":
 				r = maxf(r, Tuning.noise_grass_rustle)
 				kind = "rustling"
+			if _in_water(pos):
+				r = maxf(r * 1.6, Tuning.noise_walk * 1.4)
+				kind = "splashing"
 			if p.tree_id >= 0:
 				emit_sound(pos, maxf(r, Tuning.noise_branch), "branch", {"tree": p.tree_id})
 				emit_cue("branch", pos)
@@ -434,6 +467,14 @@ func _srv_post_step(p: Node, delta: float) -> void:
 			p.branch_timer = 0.8
 			emit_sound(pos, Tuning.noise_branch, "branch", {"tree": p.tree_id})
 			emit_cue("branch", pos)
+
+
+func _move_mult(pos: Vector3) -> float:
+	return world.move_mult(pos) if world.has_method("move_mult") else 1.0
+
+
+func _in_water(pos: Vector3) -> bool:
+	return world.has_method("in_water") and world.in_water(pos)
 
 
 func emit_sound(pos: Vector3, radius: float, kind: String, extra: Dictionary = {}) -> void:
@@ -614,8 +655,12 @@ func _anchor(t: Dictionary, which: String, dir: Vector3) -> Vector3:
 	var r: float = t["trunk_r"]
 	match which:
 		"perch":
+			if t.has("perch_pos"):
+				return t["perch_pos"]
 			return base + (t["perch_dir"] as Vector3) * (r + 0.55) + Vector3(0, t["perch_h"] + 0.25, 0)
 		"canopy":
+			if not t["deck"] and t.has("canopy_pos"):
+				return t["canopy_pos"]
 			if t["deck"]:
 				return base + dir * (r + 0.7) + Vector3(0, t["deck_h"] + 0.02, 0)
 			return base + dir * (r + 0.4) + Vector3(0, t["canopy_h"] - 0.6, 0)

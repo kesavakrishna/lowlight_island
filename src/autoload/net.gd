@@ -10,14 +10,26 @@ signal left_session(reason: String)
 signal peer_left(peer_id: int)
 
 const D = preload("res://src/core/defs.gd")
+const IslandGen = preload("res://src/worldgen/island_gen.gd")
+const IslandWorld = preload("res://src/world/island_world.gd")
 
 var roster: Dictionary = {}     # peer_id -> {"name": String, "slot": int}
 var in_session := false
 var in_match := false
 var is_host := false
 var forced_seed := -1           # --seed=N replays a world on purpose
+var world_kind := "island"      # "island" (generated) or "clearing" (milestone 1-2 fixture)
 
 var _pending_name := ""
+var _cached_island: RefCounted = null   # host: the island validated in start_match, reused by the match
+
+
+func take_cached_island(seed_value: int, attempt: int) -> RefCounted:
+	var g := _cached_island
+	_cached_island = null
+	if g and g.seed_value == seed_value and g.attempt == attempt:
+		return g
+	return null
 
 
 func _ready() -> void:
@@ -83,8 +95,27 @@ func start_match() -> void:
 	if roster.size() < Tuning.min_players_to_start:
 		status.emit("Need at least %d players." % Tuning.min_players_to_start)
 		return
-	var seed_value := forced_seed if forced_seed >= 0 else randi()
-	var params := {"seed": seed_value, "roster": roster.duplicate(true)}
+	var seed_value := forced_seed if forced_seed >= 0 else randi() % 1000000000
+	var params := {"seed": seed_value, "roster": roster.duplicate(true), "world": world_kind}
+	if world_kind == "island":
+		# Generate and validate here so every peer rebuilds the same accepted attempt.
+		var found := false
+		for tries in 4:
+			var gen := IslandGen.new()
+			if gen.generate(seed_value):
+				params["seed"] = seed_value
+				params["attempt"] = gen.attempt
+				params["checksum"] = IslandWorld.compute_checksum(gen)
+				_cached_island = gen
+				found = true
+				break
+			status.emit("Island %d failed validation (%s); trying another." % [seed_value, gen.reject_reason])
+			if forced_seed >= 0:
+				break
+			seed_value = randi() % 1000000000
+		if not found:
+			status.emit("Could not generate a valid island. Try Start again.")
+			return
 	_begin_match.rpc(params)
 
 
@@ -93,11 +124,22 @@ func return_to_lobby() -> void:
 		_return_lobby.rpc()
 
 
-func _on_peer_connected(_id: int) -> void:
-	pass  # wait for _register
+func _on_peer_connected(id: int) -> void:
+	_relax_timeout(id)   # then wait for _register
+
+
+## Building a generated island blocks a peer for a few seconds on slow PCs; don't drop
+## the connection for that. ENet still notices a peer that is really gone (30 s).
+func _relax_timeout(id: int) -> void:
+	var mp := multiplayer.multiplayer_peer
+	if mp is ENetMultiplayerPeer:
+		var pp: ENetPacketPeer = mp.get_peer(id)
+		if pp:
+			pp.set_timeout(64, 20000, 30000)
 
 
 func _on_peer_disconnected(id: int) -> void:
+	print("[net] peer %d disconnected" % id)
 	if not multiplayer.is_server():
 		return
 	if roster.has(id):
@@ -150,6 +192,7 @@ func _clean_name(n: String, slot: int) -> String:
 # ------------------------------------------------------------------ client side
 
 func _on_connected() -> void:
+	_relax_timeout(1)
 	status.emit("Connected. Joining crew...")
 	_register.rpc_id(1, _pending_name, D.PROTOCOL_VERSION)
 
@@ -159,6 +202,7 @@ func _on_connection_failed() -> void:
 
 
 func _on_server_disconnected() -> void:
+	print("[net] lost the host")
 	leave_session("The host closed the session.")
 
 
