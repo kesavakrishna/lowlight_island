@@ -121,6 +121,29 @@ func _on_match_begin(params: Dictionary) -> void:
 			o.broadcast = 1.0
 			o.broadcast_done = true
 			o.boat_due = true
+	if opts.has("dev-lineup") and Net.is_host:
+		# Dev: one of each creature type standing in a row in front of the player.
+		var lp: Node = match_node.local_player
+		var fwd := Vector3(-sin(match_node.look_yaw), 0, -cos(match_node.look_yaw))
+		var right := Vector3(cos(match_node.look_yaw), 0, -sin(match_node.look_yaw))
+		var i := 0
+		for c in match_node.creatures.values():
+			if i >= D.CREATURE_TYPES.size():
+				break
+			var t: String = D.CREATURE_TYPES[i]
+			c.ctype = t
+			for ch in c.get_children():
+				if ch is Node3D and ch != c._debug_label and ch != c._ripple and not (ch is CollisionShape3D):
+					ch.queue_free()
+			c._body = c.Body.build(t, c)
+			var at: Vector3 = lp.global_position + fwd * 7.0 + right * (i - 1.5) * 2.6
+			at.y = match_node.world.ground_y(at)
+			c.wake(1, at)
+			c.ctype = t
+			c.stats = Tuning.creature_stats(t, 1)
+			c.hold_at(at, lp.global_position, 999.0, "lineup")
+			c.yaw = atan2(-(lp.global_position.x - at.x), -(lp.global_position.z - at.z)) + PI
+			i += 1
 	if opts.has("map") and match_node.hud:
 		match_node.hud.call_deferred("toggle_map")
 	if opts.has("lantern") and match_node.local_player:
