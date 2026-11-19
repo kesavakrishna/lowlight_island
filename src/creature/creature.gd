@@ -483,6 +483,8 @@ func ray_clear(a: Vector3, b: Vector3, light_passes_damaged_door: bool = false) 
 
 
 func _is_damaged_door(collider: Object) -> bool:
+	if match_ref.building and match_ref.building.leaks_light(collider):
+		return true
 	for c in world.caves:
 		if collider == c["door_body"]:
 			return c["door_hp"] < Tuning.door_damaged_below

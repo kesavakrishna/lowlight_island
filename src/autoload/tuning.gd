@@ -119,6 +119,8 @@ var repair_cost := 1                 # repairs stay cheaper than replacing
 var repair_hp := 35.0
 var rebuild_cost := 3
 var rebuild_hp := 60.0
+var build_time := 3.0                # seconds of noisy work to place a piece
+var noise_build := 14.0
 
 # ---------------------------------------------------------------- creatures: night-one baseline per type
 # Every type shares the behavior core; these values and flags make them hunt differently.

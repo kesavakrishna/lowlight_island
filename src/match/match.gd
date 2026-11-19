@@ -12,6 +12,7 @@ const IslandWorld = preload("res://src/world/island_world.gd")
 const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const Objectives = preload("res://src/match/objectives.gd")
+const Building = preload("res://src/match/building.gd")
 const CreatureBody = preload("res://src/creature/creature_body.gd")
 const NerveFx = preload("res://src/player/nerve_fx.gd")
 
@@ -20,6 +21,7 @@ var is_server := false
 var headless := false
 var world: Node3D
 var objectives: RefCounted = null
+var building: RefCounted = null
 var env: Node3D
 var hud: CanvasLayer
 var players: Dictionary = {}       # peer_id -> player.gd
@@ -101,6 +103,8 @@ func _ready() -> void:
 	items_root = _child_root("Items")
 	objectives = Objectives.new()
 	objectives.setup(self)
+	building = Building.new()
+	building.setup(self)
 	var roster: Dictionary = params.get("roster", {})
 	var ids: Array = roster.keys()
 	ids.sort()
@@ -246,6 +250,8 @@ func _physics_process(delta: float) -> void:
 			_srv_step_player(p, delta)
 		_srv_update_noisemakers(delta)
 		objectives.server_tick(delta)
+		building.tick(delta)
+		_srv_wall_attacks(delta)
 		for c in creatures.values():
 			c.server_tick(delta)
 		sound_events.clear()
@@ -625,7 +631,10 @@ func _handle_request(pid: int, kind: String, a: Variant, b: Variant) -> void:
 			if p.mode == D.Mode.NORMAL and typeof(a) == TYPE_FLOAT:
 				_srv_shove(p)
 		"repair":
-			if p.mode == D.Mode.NORMAL:
+			# V: patch a damaged door you're next to, otherwise build / repair what fits here.
+			if p.mode == D.Mode.NORMAL and _near_damaged_door(p):
+				objectives.repair(p)
+			elif not building.start(p):
 				objectives.repair(p)
 		"skip_phase":
 			if pid == 1:
@@ -1425,8 +1434,35 @@ func recruit_holder(caller: Node, point: Vector3, face: Vector3, why: String) ->
 		pick.hold_at(point, face, 20.0, why)
 
 
-func shake_platform(_tree_id: int, _strength: float) -> void:
-	pass   # built platforms take damage here (building at slots)
+func shake_platform(tree_id: int, strength: float) -> void:
+	building.shake(tree_id, strength)
+
+
+func _near_damaged_door(p: Node) -> bool:
+	for c in world.caves:
+		if c["door_hp"] < Tuning.door_hp and p.global_position.distance_to(c["door_center"]) < Tuning.interact_range + 0.8:
+			return true
+	return false
+
+
+var _wall_t := 0.0
+
+## A creature searching a cave tears at the low wall it finds in its way.
+func _srv_wall_attacks(delta: float) -> void:
+	_wall_t += delta
+	if _wall_t < 1.4:
+		return
+	_wall_t = 0.0
+	for key in building.builds.keys():
+		if not key.begins_with("wall:"):
+			continue
+		var cave: Dictionary = world.caves[int(key.split(":")[1])]
+		var at: Vector3 = (cave["xform"] as Transform3D) * Vector3(-0.6, 0, -2.2)
+		for c in creatures.values():
+			if c.awake and c.global_position.distance_to(at) < 2.2 and (c.state == D.CState.SEARCH or c.state == D.CState.CHASE):
+				building.damage(key, c.stats["door_damage"])
+				emit_cue("door_hit", at + Vector3(0, 0.6, 0), {"hp": 0})
+				break
 
 
 ## A captured player's view: ride along with a teammate who's still out there.
@@ -1509,7 +1545,7 @@ func _send_snapshot() -> void:
 			"canopy": flags |= 64
 		if p.carrying: flags |= 128
 		if p.away: flags |= 256
-		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean])
+		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean, _job_progress(p.peer_id)])
 	var cs: Array = []
 	for c in creatures.values():
 		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake, c.underground, c.scars])
@@ -1519,7 +1555,7 @@ func _send_snapshot() -> void:
 	var snap := {
 		"raids": raids,
 		"t": match_time, "ph": phase, "pt": phase_time, "d": day_index, "n": nights_survived,
-		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(),
+		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(), "builds": building.serialize(),
 	}
 	if _snap_count % 10 == 0:
 		var dbg := {}
@@ -1528,6 +1564,11 @@ func _send_snapshot() -> void:
 		snap["dbg"] = dbg
 	for pid in _ready_peers():
 		_rpc_snapshot.rpc_id(pid, snap)
+
+
+func _job_progress(pid: int) -> float:
+	var job: Dictionary = building.jobs.get(pid, {})
+	return job.get("t", 0.0)
 
 
 func _door_states() -> Array:
@@ -1567,6 +1608,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.sprinting = (flags & 2) != 0
 		p.carrying = (flags & 128) != 0
 		p.nerve = e[14]
+		p.build_progress = e[17]
 		p.dragged_by = e[15]
 		if not p.is_local:
 			p.lean = e[16]
@@ -1608,6 +1650,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		if doors[i][0] != cv["door_open"] or absf(doors[i][1] - cv["door_hp"]) > 0.01:
 			world.set_door(doors[i][0], doors[i][1], i)
 	objectives.apply(s["obj"])
+	building.apply_remote(s.get("builds", {}))
 	_client_raids = s.get("raids", {})
 	if s.has("dbg"):
 		for k in s["dbg"]:
@@ -1697,6 +1740,12 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 		"freed":
 			if hud:
 				hud.big_message("%s is free" % data.get("name", "Someone"), "Get out of there before they wake.")
+		"hammer":
+			Sfx.play_3d("door_hit", pos, -6.0, randf_range(1.6, 1.9), 40.0)
+		"collapse":
+			Sfx.play_3d("door_hit", pos, 6.0, 0.5, 60.0)
+			if hud:
+				hud.cue("Something gave way", pos, true)
 		"new_tracks":
 			if hud:
 				hud.notice("Unfamiliar tracks near the burrows this morning. Something new came up last night.")
@@ -1794,6 +1843,19 @@ func prompt_text() -> String:
 	var p := local_player
 	if p == null or over:
 		return ""
+	if is_server:
+		p.build_progress = _job_progress(p.peer_id)
+	if p.build_progress > 0.0:
+		return "Building... %d%%  (stay close)" % int(p.build_progress * 100.0)
+	var main := _prompt_main()
+	var extra: String = building.prompt(p) if p.mode == D.Mode.NORMAL or p.mode == D.Mode.PERCHED else ""
+	if main != "" and extra != "":
+		return main + "      " + extra
+	return main + extra
+
+
+func _prompt_main() -> String:
+	var p := local_player
 	match p.mode:
 		D.Mode.ESCAPED:
 			return ""

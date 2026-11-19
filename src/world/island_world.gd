@@ -114,6 +114,8 @@ func move_mult(p: Vector3) -> float:
 func cover_at(p: Vector3) -> String:
 	var above := p.y - ground_y(p)
 	if above > 2.5:
+		if deck_tree_at(p) >= 0:
+			return ""   # a platform is exposed from some angles until screened
 		for t in trees:
 			var h := Vector2(p.x - t["pos"].x, p.z - t["pos"].z).length()
 			if h < 3.0 and p.y - t["pos"].y > t["canopy_h"] - 1.2:
@@ -139,8 +141,14 @@ func in_cave(p: Vector3) -> bool:
 	return cave_at(p) >= 0
 
 
-func deck_tree_at(_p: Vector3) -> int:
-	return -1   # platforms are built at slots in milestone 5
+func deck_tree_at(p: Vector3) -> int:
+	for t in trees:
+		if not t["deck"]:
+			continue
+		var d := Vector2(p.x - t["pos"].x, p.z - t["pos"].z)
+		if absf(d.x) <= t["deck_half"] + 0.3 and absf(d.y) <= t["deck_half"] + 0.3 and p.y - t["pos"].y > t["deck_h"] - 0.4:
+			return t["id"]
+	return -1
 
 
 func tree_by_id(id: int) -> Dictionary:
