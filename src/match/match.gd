@@ -11,11 +11,13 @@ const Clearing = preload("res://src/world/test_clearing.gd")
 const IslandWorld = preload("res://src/world/island_world.gd")
 const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
+const Objectives = preload("res://src/match/objectives.gd")
 
 var params: Dictionary = {}
 var is_server := false
 var headless := false
 var world: Node3D
+var objectives: RefCounted = null
 var env: Node3D
 var hud: CanvasLayer
 var players: Dictionary = {}       # peer_id -> player.gd
@@ -87,6 +89,8 @@ func _ready() -> void:
 	players_root = _child_root("Players")
 	creatures_root = _child_root("Creatures")
 	items_root = _child_root("Items")
+	objectives = Objectives.new()
+	objectives.setup(self)
 	var roster: Dictionary = params.get("roster", {})
 	var ids: Array = roster.keys()
 	ids.sort()
@@ -135,12 +139,22 @@ func _spawn_player(pid: int, info: Dictionary) -> void:
 
 
 func _spawn_creatures() -> void:
-	# Milestone 2: a single Stalker. Later milestones draw types from the pool by seed.
-	var c := CreatureScript.new()
-	c.setup(0, "stalker", is_server, self, world)
-	creatures_root.add_child(c)
-	c.global_position = world.burrow_pos
-	creatures[0] = c
+	# The whole pool exists from the start (dormant) so every peer agrees on ids;
+	# nightly escalation decides how many wake. Milestone 5 adds the other types.
+	var count: int = Tuning.max_creatures if params.get("world", "clearing") == "island" else 1
+	for i in count:
+		var c := CreatureScript.new()
+		c.setup(i, "stalker", is_server, self, world)
+		creatures_root.add_child(c)
+		c.global_position = _burrow_for(i)
+		creatures[i] = c
+
+
+func _burrow_for(i: int) -> Vector3:
+	if "burrows" in world and not world.burrows.is_empty():
+		var b: Vector3 = world.burrows[i % world.burrows.size()]
+		return b + Vector3((i / world.burrows.size()) * 1.6, 0, 0)
+	return world.burrow_pos + Vector3(i * 1.5, 0, 0)
 
 
 func _remove_player(pid: int) -> void:
@@ -177,6 +191,7 @@ func _physics_process(delta: float) -> void:
 		for p in players.values():
 			_srv_step_player(p, delta)
 		_srv_update_noisemakers(delta)
+		objectives.server_tick(delta)
 		for c in creatures.values():
 			c.server_tick(delta)
 		sound_events.clear()
@@ -195,7 +210,8 @@ func _physics_process(delta: float) -> void:
 		_client_update_noisemakers(delta)
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
+	objectives.process_visuals(delta)
 	var rt := _wall() + _time_offset - 0.1
 	if not is_server:
 		for p in players.values():
@@ -232,18 +248,31 @@ func _set_phase(new_phase: int) -> void:
 		day_index += 1
 	phase = new_phase
 	match phase:
+		D.Phase.DUSK:
+			# First night past the threshold: they stop hiding. Make the shift unmistakable.
+			if day_index == Tuning.escalation_threshold_night + 1:
+				emit_cue("threshold", world.burrow_pos + Vector3(0, 1, 0))
 		D.Phase.NIGHT:
+			# Escalation: more individuals each night, each one stronger (Tuning.creature_stats).
 			var count: int = mini(Tuning.patrol_count(day_index), creatures.size())
 			var i := 0
 			for c in creatures.values():
 				if i < count:
-					c.wake(day_index, world.burrow_pos + Vector3(i * 1.5, 0, 0))
+					c.wake(day_index, _burrow_for(i))
 				i += 1
-			emit_cue("call", world.burrow_pos + Vector3(0, 1, 0))
+			emit_cue("call", world.burrow_pos + Vector3(0, 1, 0), {"count": count})
 		D.Phase.DAWN:
 			nights_survived += 1
+			objectives.on_phase(phase)
+			var lurk: Array = world.lurk_points if "lurk_points" in world else []
+			var li := 0
 			for c in creatures.values():
-				c.go_home()
+				if objectives.boat_here() and c.awake and not lurk.is_empty():
+					# Creatures linger in the shade along the route to the dock: the last leg is a run.
+					c.lurk(lurk[li % lurk.size()])
+					li += 1
+				else:
+					c.go_home()
 	_rpc_event.rpc("phase", Vector3.ZERO, {"phase": phase, "day": day_index})
 
 
@@ -326,6 +355,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			var it := best_interactable(lp)
 			if it.get("kind", "") == "rope":
 				request("interact", "rope", it["id"])
+	elif event.is_action_pressed("drop"):
+		if lp.carrying:
+			request("drop")
+	elif event.is_action_pressed("repair"):
+		request("repair")
 	elif event.is_action_pressed("dev_skip_phase"):
 		if is_server:
 			request("skip_phase")
@@ -510,6 +544,12 @@ func _handle_request(pid: int, kind: String, a: Variant, b: Variant) -> void:
 		"perch":
 			if typeof(a) == TYPE_STRING:
 				_srv_perch_action(p, a)
+		"drop":
+			if p.mode == D.Mode.NORMAL:
+				objectives.drop_battery(p)
+		"repair":
+			if p.mode == D.Mode.NORMAL:
+				objectives.repair(p)
 		"skip_phase":
 			if pid == 1:
 				_set_phase((phase + 1) % 4)
@@ -553,6 +593,7 @@ func interact_candidates(p: Node) -> Array:
 	for q in players.values():
 		if q != p and q.mode == D.Mode.DOWNED:
 			out.append({"kind": "revive", "id": q.peer_id, "pos": q.global_position + Vector3(0, 0.3, 0)})
+	out.append_array(objectives.candidates(p))
 	return out
 
 
@@ -612,6 +653,8 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 				p.noisemakers += 1
 				noisemakers.erase(id)
 				_rpc_event.rpc("nm_remove", Vector3.ZERO, {"id": id})
+		_:
+			objectives.interact(p, kind, id)
 
 
 func _srv_toggle_door(p: Node, cid: int) -> void:
@@ -671,6 +714,9 @@ func _anchor(t: Dictionary, which: String, dir: Vector3) -> Vector3:
 
 func _srv_start_climb(p: Node, t: Dictionary) -> void:
 	if t.is_empty() or p.mode != D.Mode.NORMAL or p.global_position.y - t["pos"].y > 1.5:
+		return
+	if p.carrying:
+		notify(p, "The battery is too heavy to climb with. Put it down first [Q].")
 		return
 	var dir := _dir_from_trunk(t, p.global_position)
 	if t["ladder"]:
@@ -794,6 +840,8 @@ func down_player(p: Node, _by: Node) -> void:
 		var t: Dictionary = world.tree_by_id(maxi(tid, 0))
 		var a := randf() * TAU
 		p.global_position = t["pos"] + Vector3(cos(a), 0, sin(a)) * (t["trunk_r"] + 1.0) + Vector3(0, 0.05, 0)
+	if p.carrying:
+		objectives.drop_battery(p)   # a downed carrier drops it where the crew can get it back
 	p.mode = D.Mode.DOWNED
 	p.climb = {}
 	p.perch = ""
@@ -832,15 +880,24 @@ func _srv_revive(delta: float) -> void:
 func _check_loss() -> void:
 	if players.is_empty():
 		return
+	var aboard := 0
 	for p in players.values():
-		if p.mode != D.Mode.DOWNED:
+		if p.mode == D.Mode.ESCAPED:
+			aboard += 1
+		elif p.mode != D.Mode.DOWNED:
 			return
-	_end_match(false)
+	# Everyone left on the island is down. Anyone already aboard still counts as a crew win.
+	end_match(aboard > 0)
 
 
-func _end_match(won: bool) -> void:
+func end_match(won: bool) -> void:
+	if over:
+		return
 	over = true
-	_rpc_game_over.rpc({"won": won, "nights": nights_survived, "day": day_index})
+	var crew: Array = []
+	for p in players.values():
+		crew.append([p.display_name, p.mode == D.Mode.ESCAPED])
+	_rpc_game_over.rpc({"won": won, "nights": nights_survived, "day": day_index, "crew": crew})
 
 
 @rpc("authority", "call_local", "reliable")
@@ -853,6 +910,9 @@ func _rpc_game_over(summary: Dictionary) -> void:
 
 func _on_peer_left(pid: int) -> void:
 	if is_server:
+		var p: Node = players.get(pid)
+		if p and p.carrying:
+			objectives.drop_battery(p)
 		_remove_player(pid)
 		_rpc_player_left.rpc(pid)
 
@@ -960,13 +1020,14 @@ func _send_snapshot() -> void:
 			"grass": flags |= 16
 			"bush": flags |= 32
 			"canopy": flags |= 64
-		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch])
+		if p.carrying: flags |= 128
+		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood])
 	var cs: Array = []
 	for c in creatures.values():
 		cs.append([c.cid, c.global_position, c.yaw, c.state, c.climbing, c.awake])
 	var snap := {
 		"t": match_time, "ph": phase, "pt": phase_time, "d": day_index, "n": nights_survived,
-		"p": ps, "c": cs, "doors": _door_states(),
+		"p": ps, "c": cs, "doors": _door_states(), "obj": objectives.serialize(),
 	}
 	if _snap_count % 10 == 0:
 		var dbg := {}
@@ -1011,6 +1072,8 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.revive_progress = e[11]
 		p.perch = e[12]
 		p.sprinting = (flags & 2) != 0
+		p.carrying = (flags & 128) != 0
+		p.wood = e[13]
 		p.inside_cave = (flags & 8) != 0
 		p.cave_id = world.cave_at(p.global_position) if p.inside_cave else -1
 		p.cover = "grass" if flags & 16 else ("bush" if flags & 32 else ("canopy" if flags & 64 else ""))
@@ -1043,6 +1106,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		var cv: Dictionary = world.caves[i]
 		if doors[i][0] != cv["door_open"] or absf(doors[i][1] - cv["door_hp"]) > 0.01:
 			world.set_door(doors[i][0], doors[i][1], i)
+	objectives.apply(s["obj"])
 	if s.has("dbg"):
 		for k in s["dbg"]:
 			if creatures.has(k):
@@ -1064,7 +1128,49 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 		"call":
 			Sfx.play_3d("call", pos, 4.0, 1.0, 200.0)
 			if hud:
-				hud.notice("A long call rises from underground.")
+				var n: int = data.get("count", 1)
+				hud.notice("A long call rises from underground." if n <= 1 else "Calls rise from underground - more than one voice.")
+		"threshold":
+			Sfx.play_3d("call", pos, 10.0, 0.8, 300.0)
+			Sfx.play_3d("screech", pos, 6.0, 0.7, 300.0)
+			if hud:
+				hud.big_message("They stop hiding", "The keeper's last entry: \"After the fourth night they stop hiding.\"")
+		"found":
+			if hud:
+				hud.notice("Found %s." % data.get("what", "it"))
+		"battery_pick":
+			Sfx.play_3d("step", pos, 0.0, 0.6, 20.0)
+			if hud:
+				hud.notice("%s picked up the battery." % data.get("name", "Someone"))
+		"battery_drop":
+			Sfx.play_3d("down", pos, -6.0, 1.6, 25.0)
+			if hud:
+				hud.notice("The battery is on the ground.")
+		"radio_powered":
+			Sfx.play_3d("door_creak", pos, 0.0, 2.0, 30.0)
+			if hud:
+				hud.big_message("The radio has power", "Run the broadcast after dark. It will light up the shed - and they will come.")
+		"broadcast_on":
+			if hud:
+				hud.notice("The transmitter hums to life. Someone has to stay with it.")
+		"broadcast_off":
+			if hud:
+				hud.notice("The transmitter goes quiet. Progress is kept.")
+		"broadcast_done":
+			if hud:
+				hud.big_message("The call went out", "A boat will come to the old dock at dawn. Survive until then.")
+		"boat_arrived":
+			Sfx.play_3d("call", pos, 2.0, 2.2, 400.0)
+			if hud:
+				hud.big_message("The boat is here", "Get to the old dock before it leaves. They are lingering in the shade.")
+		"boat_left":
+			if hud:
+				hud.big_message("The boat left", "Nobody made it aboard. The call has to go out again.")
+		"boarded":
+			if hud:
+				hud.notice("%s is aboard." % data.get("name", "Someone"))
+		"repair":
+			Sfx.play_3d("door_hit", pos, -4.0, 1.5, 30.0)
 		"screech":
 			Sfx.play_3d("screech", pos, 2.0, randf_range(0.9, 1.05), 90.0)
 			if hud:
@@ -1152,6 +1258,8 @@ func prompt_text() -> String:
 	if p == null or over:
 		return ""
 	match p.mode:
+		D.Mode.ESCAPED:
+			return ""
 		D.Mode.DOWNED:
 			return "You are down. Crawl to cover — a teammate can revive you."
 		D.Mode.CLIMBING:
@@ -1188,7 +1296,7 @@ func prompt_text() -> String:
 			if q:
 				pct = int(q.revive_progress * 100.0)
 			return "[Hold E] Revive %s  %d%%" % [q.display_name if q else "?", pct]
-	return ""
+	return objectives.prompt(it)
 
 
 func smoke_report() -> String:

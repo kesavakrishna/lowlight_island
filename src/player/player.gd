@@ -27,6 +27,8 @@ var cover := ""
 var inside_cave := false
 var cave_id := -1
 var speed_mult := 1.0            # terrain multiplier (wading), set before simulate()
+var carrying := false            # the radio battery: no sprint, no climb, no prone, slower
+var wood := 0
 var last_dry := Vector3.ZERO
 var revive_progress := 0.0
 var downed_time := 0.0
@@ -222,18 +224,20 @@ func try_set_stance(s: int) -> void:
 func simulate(inp: Dictionary, delta: float) -> void:
 	yaw = inp.get("yaw", yaw)
 	pitch = inp.get("pitch", pitch)
-	if mode == D.Mode.CLIMBING or mode == D.Mode.PERCHED:
+	if mode == D.Mode.CLIMBING or mode == D.Mode.PERCHED or mode == D.Mode.ESCAPED:
 		velocity = Vector3.ZERO
 		return
 	var want: int = inp.get("stance", D.Stance.STAND)
 	if mode == D.Mode.DOWNED:
 		want = D.Stance.PRONE
+	elif carrying and want == D.Stance.PRONE:
+		want = D.Stance.CROUCH   # the bulky battery doesn't fit under anything you'd crawl through
 	try_set_stance(want)
 
 	var mv := Vector2(inp.get("mx", 0.0), inp.get("my", 0.0)).limit_length(1.0)
 	var dir := Basis(Vector3.UP, yaw) * Vector3(mv.x, 0, mv.y)
 	var btn: int = inp.get("btn", 0)
-	var wants_sprint := (btn & D.BTN_SPRINT) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and mv.length() > 0.2
+	var wants_sprint := (btn & D.BTN_SPRINT) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and mv.length() > 0.2 and not carrying
 	if wants_sprint and stamina > 0.0 and (sprinting or stamina >= Tuning.sprint_min_to_start):
 		sprinting = true
 	else:
@@ -248,6 +252,8 @@ func simulate(inp: Dictionary, delta: float) -> void:
 		speed = Tuning.crouch_speed
 	elif stance == D.Stance.PRONE:
 		speed = Tuning.prone_speed
+	if carrying:
+		speed = minf(speed, Tuning.carry_speed)
 
 	if sprinting:
 		stamina = maxf(0.0, stamina - Tuning.sprint_drain * delta)
@@ -262,7 +268,7 @@ func simulate(inp: Dictionary, delta: float) -> void:
 	velocity.x = hv.x
 	velocity.z = hv.z
 	if is_on_floor():
-		if (btn & D.BTN_JUMP) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL:
+		if (btn & D.BTN_JUMP) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and not carrying:
 			velocity.y = Tuning.jump_velocity
 		else:
 			velocity.y = minf(velocity.y, 0.0)
@@ -340,6 +346,9 @@ func _process(delta: float) -> void:
 	visual_offset = visual_offset.lerp(Vector3.ZERO, clampf(delta * 10.0, 0.0, 1.0))
 	visual.position = visual_offset
 	visual.rotation.y = yaw
+	var gone := mode == D.Mode.ESCAPED
+	visual.visible = not gone
+	collider.disabled = gone
 	var target_eye := eye_height()
 	_eye_h = lerpf(_eye_h, target_eye, clampf(delta * 10.0, 0.0, 1.0))
 	head.position.y = _eye_h

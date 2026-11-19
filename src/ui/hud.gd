@@ -5,6 +5,7 @@ extends CanvasLayer
 
 const D = preload("res://src/core/defs.gd")
 const SettingsPanel = preload("res://src/ui/settings_panel.gd")
+const Preview = preload("res://src/worldgen/preview.gd")
 
 var match_ref: Node = null
 
@@ -24,6 +25,12 @@ var _settings: Control
 var _results: PanelContainer
 var _vignette: ColorRect
 var _cue_list: Array = []   # {text, pos, t, critical}
+var _objective: Label
+var _broadcast_bar: ProgressBar
+var _map: Control
+var _map_tex: TextureRect
+var _map_marks: Control
+var _map_px := 4
 
 
 func _ready() -> void:
@@ -54,6 +61,25 @@ func _ready() -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner_sub = _label(root, 20, Control.PRESET_CENTER_TOP, Vector2(-400, 180), Vector2(800, 30))
 	_banner_sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	_objective = _label(root, 18, Control.PRESET_CENTER_TOP, Vector2(-420, 44), Vector2(840, 50))
+	_objective.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_objective.add_theme_color_override("font_color", Color(0.95, 0.88, 0.7))
+	_broadcast_bar = ProgressBar.new()
+	_broadcast_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_broadcast_bar.position = Vector2(-150, 98)
+	_broadcast_bar.size = Vector2(300, 8)
+	_broadcast_bar.show_percentage = false
+	_broadcast_bar.max_value = 1.0
+	_broadcast_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bfill := StyleBoxFlat.new()
+	bfill.bg_color = Color(0.6, 0.8, 1.0, 0.9)
+	var bbg := StyleBoxFlat.new()
+	bbg.bg_color = Color(0, 0, 0, 0.5)
+	_broadcast_bar.add_theme_stylebox_override("fill", bfill)
+	_broadcast_bar.add_theme_stylebox_override("background", bbg)
+	_broadcast_bar.visible = false
+	root.add_child(_broadcast_bar)
 
 	_prompt = _label(root, 22, Control.PRESET_CENTER_BOTTOM, Vector2(-400, -170), Vector2(800, 32))
 	_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -93,6 +119,7 @@ func _ready() -> void:
 	_debug.visible = false
 	_debug.add_theme_color_override("font_color", Color(1, 0.85, 0.45))
 
+	_build_map(root)
 	_build_pause(root)
 	_build_results(root)
 
@@ -126,6 +153,95 @@ func _panel(parent: Control) -> PanelContainer:
 	return p
 
 
+func _build_map(root: Control) -> void:
+	_map = Control.new()
+	_map.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_map.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_map.visible = false
+	root.add_child(_map)
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.55)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_map.add_child(shade)
+	_map_tex = TextureRect.new()
+	_map_tex.set_anchors_preset(Control.PRESET_CENTER)
+	_map_tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_map.add_child(_map_tex)
+	_map_marks = Control.new()
+	_map_marks.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_map_marks.draw.connect(_draw_map)
+	_map_tex.add_child(_map_marks)
+
+
+func toggle_map() -> void:
+	if match_ref and _ensure_map_texture():
+		_map.visible = not _map.visible
+
+
+func _ensure_map_texture() -> bool:
+	if _map_tex.texture:
+		return true
+	var w: Node = match_ref.world
+	if not ("gen" in w) or w.gen == null:
+		return false
+	# A rough sketch: terrain only. Landmarks appear as the crew learns them.
+	var img: Image = Preview.render(w.gen, _map_px, false)
+	img.adjust_bcs(1.05, 0.75, 0.85)
+	_map_tex.texture = ImageTexture.create_from_image(img)
+	_map_tex.custom_minimum_size = img.get_size()
+	_map_tex.size = img.get_size()
+	_map_tex.set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_KEEP_SIZE)
+	_map_marks.size = img.get_size()
+	return true
+
+
+func _map_point(p: Vector3) -> Vector2:
+	var g: RefCounted = match_ref.world.gen
+	var o: Vector2 = g.origin()
+	return Vector2((p.x - o.x) / g.cell, (p.z - o.y) / g.cell) * _map_px
+
+
+func _draw_map() -> void:
+	var m := match_ref
+	var w: Node = m.world
+	var obj: RefCounted = m.objectives
+	var font := ThemeDB.fallback_font
+	var lm: Dictionary = w.landmarks
+	_map_mark(_map_point(lm["crash"]), Color(1, 0.3, 0.2), "wreck", font)
+	_map_mark(_map_point(lm["radio"]), Color(0.95, 0.35, 0.95), "radio shed", font)
+	if obj.dock_known:
+		_map_mark(_map_point(lm["dock"]), Color(0.3, 0.9, 1.0), "old dock", font)
+	if obj.battery_found or obj.battery_state != obj.Bat.SITE:
+		_map_mark(_map_point(obj.battery_pos), Color(1, 0.85, 0.2), "battery", font)
+	else:
+		# The wreck sketch: a rough circle around the battery site, not the exact spot.
+		var g: RefCounted = w.gen
+		var hint: Vector3 = w.battery_spot + Vector3(sin(g.seed_value) * 9.0, 0, cos(g.seed_value * 1.7) * 9.0)
+		_map_marks.draw_arc(_map_point(hint), 22.0 / g.cell * _map_px, 0, TAU, 40, Color(1, 0.85, 0.2, 0.9), 2.0)
+		_map_marks.draw_string(font, _map_point(hint) + Vector2(-30, -26), "battery?", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(1, 0.85, 0.2))
+	for i in w.caves.size():
+		if i < obj.caves_known.size() and obj.caves_known[i]:
+			_map_mark(_map_point(w.caves[i]["door_point"]), Color(0.85, 0.85, 0.85), "cave", font)
+	for p in m.players.values():
+		if p.mode == D.Mode.ESCAPED:
+			continue
+		var pt := _map_point(p.global_position)
+		if p == m.local_player:
+			var dir := Vector2(-sin(p.yaw), -cos(p.yaw))
+			var side := Vector2(-dir.y, dir.x)
+			_map_marks.draw_colored_polygon(PackedVector2Array([pt + dir * 9.0, pt + side * 5.0 - dir * 4.0, pt - side * 5.0 - dir * 4.0]), Color(1, 1, 1))
+		else:
+			_map_marks.draw_circle(pt, 4.0, Color(0.6, 1.0, 0.6) if p.mode != D.Mode.DOWNED else Color(1, 0.3, 0.3))
+			_map_marks.draw_string(font, pt + Vector2(6, 4), p.display_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.8, 1, 0.8))
+
+
+func _map_mark(pt: Vector2, col: Color, text: String, font: Font) -> void:
+	_map_marks.draw_rect(Rect2(pt - Vector2(5, 5), Vector2(10, 10)), Color(0, 0, 0))
+	_map_marks.draw_rect(Rect2(pt - Vector2(4, 4), Vector2(8, 8)), col)
+	_map_marks.draw_string(font, pt + Vector2(8, 5), text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, col)
+
+
 func _build_pause(root: Control) -> void:
 	_pause = _panel(root)
 	_pause.visible = false
@@ -140,7 +256,7 @@ func _build_pause(root: Control) -> void:
 	t.add_theme_font_size_override("font_size", 26)
 	_pause_main.add_child(t)
 	var controls := Label.new()
-	controls.text = "WASD move · Shift sprint · Ctrl/C crouch · Z prone · Space jump/stand/climb down\nE interact (hold to revive) · F lantern shutter · G throw noisemaker · R rope\nF3 creature debug overlay · F6 skip phase (host, dev)"
+	controls.text = "WASD move · Shift sprint · Ctrl/C crouch · Z prone · Space jump/stand/climb down\nE interact (hold to revive) · F lantern shutter · G throw noisemaker · R rope\nQ put the battery down · V repair a cave door (wood) · M map\nF3 creature debug overlay · F6 skip phase (host, dev)"
 	controls.add_theme_font_size_override("font_size", 15)
 	_pause_main.add_child(controls)
 	for b in [["Resume", _resume], ["Settings", _open_settings], ["Leave run", _leave]]:
@@ -162,6 +278,11 @@ func _build_results(root: Control) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("map"):
+		if match_ref and _ensure_map_texture():
+			_map.visible = not _map.visible
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("pause"):
 		if _results.visible:
 			return
@@ -240,6 +361,12 @@ func _show_banner(title: String, sub: String) -> void:
 	_banner_t = 5.0
 
 
+func big_message(title: String, sub: String) -> void:
+	_show_banner(title, sub)
+	_banner_t = 7.0
+	notice(sub)
+
+
 func show_results(summary: Dictionary) -> void:
 	_pause.visible = false
 	for c in _results.get_children():
@@ -252,7 +379,12 @@ func show_results(summary: Dictionary) -> void:
 	t.add_theme_font_size_override("font_size", 40)
 	box.add_child(t)
 	var info := Label.new()
-	info.text = "Nights survived: %d\nThe island keeps its secrets — for now." % int(summary.get("nights", 0))
+	var lines: Array[String] = ["Nights on the island: %d" % int(summary.get("nights", 0))]
+	for c in summary.get("crew", []):
+		lines.append("%s  -  %s" % [c[0], "escaped" if c[1] else "left behind"])
+	if not summary.get("won", false):
+		lines.append("The island keeps its secrets - for now.")
+	info.text = "\n".join(lines)
 	box.add_child(info)
 	if Net.is_host:
 		var b := Button.new()
@@ -284,6 +416,13 @@ func _process(delta: float) -> void:
 		ordinal = " %d" % m.day_index
 	_clock.text = "%s%s  ·  %d:%02d until %s" % [label, ordinal, int(left) / 60, int(left) % 60, next_names[m.phase]]
 	_prompt.text = m.prompt_text()
+	var obj: RefCounted = m.objectives
+	_objective.text = obj.objective_text() if obj else ""
+	_broadcast_bar.visible = obj != null and obj.enabled and obj.radio_powered and not obj.broadcast_done and obj.broadcast > 0.0
+	if _broadcast_bar.visible:
+		_broadcast_bar.value = obj.broadcast
+	if _map.visible:
+		_map_marks.queue_redraw()
 
 	var p: Node = m.local_player
 	if p:
@@ -300,7 +439,9 @@ func _process(delta: float) -> void:
 		if p.inside_cave:
 			lines.append("Inside the cave")
 		var stance_name: String = ["Standing", "Crouched", "Prone"][p.stance]
-		lines.append("%s · Lantern %s · Noisemakers %d" % [stance_name, "OPEN" if p.lantern_open else "shuttered", p.noisemakers])
+		if p.carrying:
+			lines.append("Carrying the battery  [Q] put down")
+		lines.append("%s · Lantern %s · Noisemakers %d · Wood %d" % [stance_name, "OPEN" if p.lantern_open else "shuttered", p.noisemakers, p.wood])
 		_status.text = "\n".join(lines)
 		var target_a := 0.0
 		if p.mode == D.Mode.DOWNED:

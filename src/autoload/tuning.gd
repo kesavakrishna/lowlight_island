@@ -102,6 +102,23 @@ var biome_cost := {                  # travel cost multipliers (1 = open grass)
 	"coast": 1.05, "grassland": 1.0, "forest": 1.3, "mountains": 1.45, "swamp": 2.2,
 }
 
+# ---------------------------------------------------------------- escape run (milestone 4)
+var broadcast_time := 150.0          # seconds of tended transmission (kept across interruptions)
+var broadcast_noise := 70.0          # hum radius, before each creature's hearing multiplier
+var broadcast_tend_radius := 3.0     # someone must stay this close to the transmitter
+var broadcast_light_mult := 1.8      # the lit shed is seen this much farther than a lantern
+var boarding_window := 100.0         # seconds the boat waits at the dock from dawn
+var max_creatures := 6               # individuals in the pool; escalation decides how many wake
+var wood_cap := 12                   # wood a survivor can carry
+var wood_take := 2                   # per gather
+var wood_near_wreck := 4             # three piles near the crash
+var wood_far_piles := 7
+var wood_far_amount := 3
+var repair_cost := 1                 # repairs stay cheaper than replacing
+var repair_hp := 35.0
+var rebuild_cost := 3
+var rebuild_hp := 60.0
+
 # ---------------------------------------------------------------- creatures: night-one baseline per type
 var creature_types := {
 	"stalker": {

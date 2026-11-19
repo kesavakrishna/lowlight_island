@@ -99,7 +99,7 @@ func _ready() -> void:
 	col.add_child(_status)
 
 	var help := Label.new()
-	help.text = "WASD move · Shift sprint · Ctrl crouch · Z prone · E interact · F lantern · G noisemaker · Esc menu"
+	help.text = "WASD move · Shift sprint · Ctrl crouch · Z prone · E interact · F lantern · G noisemaker · Q drop battery · V repair · M map · Esc menu"
 	help.add_theme_font_size_override("font_size", 14)
 	help.add_theme_color_override("font_color", Color(0.45, 0.48, 0.47))
 	help.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

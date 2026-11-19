@@ -63,8 +63,8 @@ func _process(_delta: float) -> void:
 ## Continuous sun path: rises through dawn, crosses the day, sets during dusk.
 func _sun_phase(phase: int, f: float) -> float:
 	match phase:
-		D.Phase.DAWN: return lerpf(-0.08, 0.04, f)
-		D.Phase.DAY: return lerpf(0.04, 0.86, f)
+		D.Phase.DAWN: return lerpf(-0.08, 0.1, f)
+		D.Phase.DAY: return lerpf(0.1, 0.86, f)
 		D.Phase.DUSK: return lerpf(0.86, 1.06, f)
 	return 1.2   # night: well below the horizon
 

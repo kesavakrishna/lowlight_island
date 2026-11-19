@@ -103,6 +103,23 @@ func _on_match_begin(params: Dictionary) -> void:
 			match_node.want_stance = int(v[5])
 		if opts.has("freeze"):
 			match_node.local_player.mode = D.Mode.PERCHED   # dev: hold the camera in place
+	if opts.has("dev-state") and Net.is_host and match_node.objectives.enabled:
+		# Dev: jump the objective chain forward for screenshots and playtests.
+		var o: RefCounted = match_node.objectives
+		var st := str(opts["dev-state"])
+		if st in ["radio", "broadcast", "boat"]:
+			o.radio_powered = true
+			o.battery_state = o.Bat.INSTALLED
+			o.battery_pos = match_node.world.radio_bench + Vector3(0, 0.95, 0)
+		if st == "broadcast":
+			o.broadcast_running = true
+			o.broadcast = 0.35
+		if st == "boat":
+			o.broadcast = 1.0
+			o.broadcast_done = true
+			o.boat_due = true
+	if opts.has("map") and match_node.hud:
+		match_node.hud.call_deferred("toggle_map")
 	if opts.has("lantern") and match_node.local_player:
 		match_node.local_player.lantern_open = true
 		match_node.request("lantern", true)

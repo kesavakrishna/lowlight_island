@@ -51,6 +51,8 @@ var stuck_timer := 0.0
 var move_speed := 0.0
 var yaw := 0.0
 var log_ai := false
+var leash := Vector3.INF          # dawn: stay in the shade near this point
+var leash_r := 14.0
 var _rng := RandomNumberGenerator.new()
 
 # ---- replicated / visual
@@ -98,6 +100,7 @@ func _ready() -> void:
 # ================================================================== host brain
 
 func wake(night: int, at: Vector3) -> void:
+	leash = Vector3.INF
 	stats = Tuning.creature_stats(ctype, night)
 	global_position = at
 	awareness.clear()
@@ -107,7 +110,18 @@ func wake(night: int, at: Vector3) -> void:
 	patrol_target = Vector3.INF
 
 
+## Dawn with the boat in: linger in a shaded stretch of the route to the dock.
+func lurk(point: Vector3) -> void:
+	leash = point
+	patrol_target = Vector3.INF
+	if state == D.CState.CLIMB or state == D.CState.TREE_ATTACK or state == D.CState.CLIMB_DOWN:
+		climbing = false
+		global_position.y = world.ground_y(global_position)
+	_set_state(D.CState.PATROL, "lingering in the shade by the dock route")
+
+
 func go_home() -> void:
+	leash = Vector3.INF
 	if state == D.CState.DORMANT:
 		return
 	climbing = false
@@ -207,6 +221,14 @@ func _perceive(delta: float) -> void:
 			light_cd = 1.0
 			if state == D.CState.PATROL or state == D.CState.SEARCH or state == D.CState.INVESTIGATE:
 				_investigate(p.eye_position(), 0.7, "saw a light")
+	# The broadcast lights up the shed: a beacon seen from far across the island.
+	var obj: RefCounted = match_ref.objectives
+	if obj and obj.broadcast_active and light_cd <= 0.0 and leash == Vector3.INF:
+		var bench: Vector3 = world.radio_bench
+		if global_position.distance_to(bench) < stats["light_sight_range"] * Tuning.broadcast_light_mult:
+			light_cd = 2.0
+			if state == D.CState.PATROL or state == D.CState.SEARCH or state == D.CState.INVESTIGATE:
+				_investigate(bench, 0.9, "drawn to the broadcast")
 	if best == null:
 		return
 	var calm := state == D.CState.PATROL or state == D.CState.INVESTIGATE or state == D.CState.SEARCH
@@ -228,6 +250,8 @@ func visibility_of(p: Node) -> float:
 	var dist := to.length()
 	var day: float = match_ref.daylight()
 	var rng := lerpf(stats["sight_range_dark"], stats["sight_range_day"], day)
+	if leash != Vector3.INF:
+		rng = minf(rng, stats["sight_range_dark"] * 1.5)   # watching from the shade, not the open
 	if p.lantern_open:
 		rng = maxf(rng, stats["lit_sight_range"])
 	var mult := 1.0
@@ -338,8 +362,10 @@ func _on_sound(ev: Dictionary, d: float, r: float) -> void:
 			return
 		_investigate(door_point, 0.8, "heard something inside the cave")
 		return
+	if leash != Vector3.INF and ev["pos"].distance_to(leash) > leash_r + 10.0:
+		return   # won't leave the shade at dawn
 	var pri := 0.5 + (1.0 - d / r) * 0.4
-	if kind == "noisemaker":
+	if kind == "noisemaker" or kind == "broadcast":
 		pri = 0.95
 	_investigate(ev["pos"], pri, "heard %s" % kind)
 
@@ -423,6 +449,11 @@ func _st_patrol(delta: float) -> void:
 
 func _pick_patrol_target() -> void:
 	pause_time = 0.0
+	if leash != Vector3.INF:
+		var off := Vector3(_rng.randf_range(-1, 1), 0, _rng.randf_range(-1, 1)).normalized() * _rng.randf_range(2.0, leash_r)
+		patrol_target = leash + off
+		reason = "lingering in the shade"
+		return
 	var pts: Array = world.patrol_points
 	var choice: Vector3 = pts[_rng.randi() % pts.size()]
 	# Weight toward the crew's general region so nights produce encounters.
@@ -488,6 +519,10 @@ func _st_chase(_delta: float) -> void:
 		return
 	if now - last_seen_t > 1.2:
 		_begin_search(last_known, 1.0, "lost sight of %s" % p.display_name)
+		return
+	if leash != Vector3.INF and global_position.distance_to(leash) > leash_r + 14.0:
+		patrol_target = Vector3.INF
+		_set_state(D.CState.PATROL, "won't leave the shade")
 		return
 	_go(p.global_position if seen_recently else last_known, stats["chase_speed"], 0.25)
 

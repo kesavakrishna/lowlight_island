@@ -42,6 +42,15 @@ var cave := {}
 var burrows: Array[Vector3] = []
 var burrow_pos := Vector3.ZERO
 var landmarks := {}
+# Objective anchors (used by objectives.gd)
+var battery_spot := Vector3.ZERO
+var battery_kind := ""
+var radio_bench := Vector3.ZERO
+var radio_mast_top := Vector3.ZERO
+var dock_board := Vector3.ZERO
+var boat_pos := Vector3.ZERO
+var wood_piles: Array[Dictionary] = []
+var lurk_points: Array[Vector3] = []     # shaded stretches of the radio->dock route (dawn ambush)
 var water_materials: Array[ShaderMaterial] = []
 var checksum := 0
 var _headless := false
@@ -533,10 +542,29 @@ func _build_landmarks() -> void:
 	for i in 4:
 		var sp: Vector3 = gen.crash + inland * 3.5 + along * (i - 1.5) * 1.6
 		spawn_points.append(Vector3(sp.x, ground_y(sp) + 0.05, sp.z))
-	Props.radio_shed(self, gen.radio, _facing_open(gen.radio), grid)
+	var shed_yaw := _facing_open(gen.radio)
+	Props.radio_shed(self, gen.radio, shed_yaw, grid)
+	var shed := Basis(Vector3.UP, shed_yaw)
+	radio_bench = gen.radio + shed * Vector3(0, 0, -0.6)
+	radio_mast_top = gen.radio + shed * Vector3(2.4, 7.0, -2.4)
 	var out := Vector3(gen.dock.x, 0, gen.dock.z).normalized()
 	Props.dock(self, gen.dock, out, WATER_LEVEL)
-	Props.battery_site(self, gen.battery, gen.battery_kind, atan2(-gen.battery.x, -gen.battery.z))
+	var deck_y := maxf(gen.dock.y, WATER_LEVEL) + 0.4
+	dock_board = Vector3(gen.dock.x, deck_y, gen.dock.z) + out * 6.5
+	boat_pos = Vector3(gen.dock.x, WATER_LEVEL, gen.dock.z) + out * 11.0
+	var bat_yaw := atan2(-gen.battery.x, -gen.battery.z)
+	Props.battery_site(self, gen.battery, gen.battery_kind, bat_yaw)
+	battery_kind = gen.battery_kind
+	battery_spot = gen.battery + Basis(Vector3.UP, bat_yaw) * Vector3(1.4, 0, 0.6)
+	battery_spot.y = ground_y(battery_spot) + 0.02
+	for wp in gen.wood_piles:
+		wood_piles.append(wp)
+	var route: PackedVector3Array = gen.routes.get("radio_dock", PackedVector3Array())
+	for i in range(6, route.size() - 4, 7):
+		var q: Vector3 = route[i]
+		var b: int = gen.biome_at(q)
+		if b == IslandGen.Biome.FOREST or b == IslandGen.Biome.SWAMP or lurk_points.size() < 2:
+			lurk_points.append(q)
 
 
 func _facing_open(p: Vector3) -> float:

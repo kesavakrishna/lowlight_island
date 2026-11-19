@@ -2,7 +2,7 @@ extends RefCounted
 ## Shared enums and constants. Preload as `const D = preload("res://src/core/defs.gd")`.
 
 enum Stance { STAND, CROUCH, PRONE }
-enum Mode { NORMAL, CLIMBING, PERCHED, DOWNED }
+enum Mode { NORMAL, CLIMBING, PERCHED, DOWNED, ESCAPED }
 enum Phase { DAY, DUSK, NIGHT, DAWN }
 enum CState { DORMANT, PATROL, INVESTIGATE, SEARCH, CHASE, CLIMB, TREE_ATTACK, CLIMB_DOWN, BREACH, LINGER, RETURN }
 

@@ -44,6 +44,7 @@ var rocks: Array[Dictionary] = []      # {pos, size, yaw}
 var patrol_points: Array[Vector3] = []
 var spawn_points: Array[Vector3] = []
 var build_slots: Array[Dictionary] = []
+var wood_piles: Array[Dictionary] = []   # {pos, amount}: some near the wreck, spares farther out
 var routes: Dictionary = {}            # name -> PackedVector3Array
 var times: Dictionary = {}             # name -> seconds
 var shares: Dictionary = {}            # biome name -> share of land
@@ -92,6 +93,7 @@ func generate_attempt(p_seed: int, p_attempt: int) -> bool:
 		reject_reason = "vegetation closed a route: " + reject_reason
 		return false
 	_place_burrows_and_patrols()
+	_place_wood()
 	if caves.size() < 2:
 		reject_reason = "fewer than two usable caves"
 		return false
@@ -178,6 +180,7 @@ func _reset() -> void:
 	patrol_points.clear()
 	spawn_points.clear()
 	build_slots.clear()
+	wood_piles.clear()
 	routes.clear()
 	times.clear()
 	shares.clear()
@@ -886,6 +889,36 @@ func _place_burrows_and_patrols() -> void:
 	caves = keep
 	for ci in caves.size():
 		build_slots.append({"kind": "low_wall", "cave": ci})
+
+
+## Enough wood near the wreck for an early build choice, spare supplies farther out.
+func _place_wood() -> void:
+	var near := 0
+	var tries := 0
+	while near < 3 and tries < 400:
+		tries += 1
+		var a := rng.randf() * TAU
+		var p := crash + Vector3(cos(a), 0, sin(a)) * rng.randf_range(6.0, 14.0)
+		var c := to_cell(p)
+		if is_walkable_cell(c) and _main[idx(c)] == 1:
+			p.y = height_at(p.x, p.z)
+			wood_piles.append({"pos": p, "amount": Tuning.wood_near_wreck})
+			near += 1
+	tries = 0
+	while wood_piles.size() < 3 + Tuning.wood_far_piles and tries < 2000:
+		tries += 1
+		var k := rng.randi() % (n * n)
+		if _main[k] == 0 or blocked[k] == 1 or (biome[k] != Biome.FOREST and biome[k] != Biome.GRASS and biome[k] != Biome.COAST):
+			continue
+		var p2 := cell_center(Vector2i(k % n, k / n))
+		if p2.distance_to(crash) < 40.0:
+			continue
+		var far := true
+		for wp in wood_piles:
+			if (wp["pos"] as Vector3).distance_to(p2) < 30.0:
+				far = false
+		if far:
+			wood_piles.append({"pos": p2, "amount": Tuning.wood_far_amount})
 
 
 ## Short summary for logs and the preview tool.

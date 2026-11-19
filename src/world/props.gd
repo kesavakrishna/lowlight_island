@@ -164,8 +164,7 @@ static func battery_site(parent: Node3D, pos: Vector3, kind: String, yaw: float)
 		Geo.box(root, Vector3(1.4, 0.5, 3.6), Vector3(0, 0.3, 0), hull, D.L_WORLD | D.L_SIGHT, 0.0, Vector3(0, 0, 0.25))
 	else:
 		Geo.box(root, Vector3(1.2, 0.8, 0.9), Vector3(0, 0.4, 0), Geo.mat(Color(0.35, 0.3, 0.22)), D.L_WORLD | D.L_SIGHT)
-	# The battery itself (carry and install arrive in milestone 4).
-	Geo.box(root, Vector3(0.7, 0.46, 0.43), Vector3(1.4, 0.24, 0.6), Geo.mat(Color(0.84, 0.58, 0.26), 0.5, Color(0.5, 0.3, 0.05), 0.3), 0)
+	# The battery itself is drawn by objectives.gd (it moves when carried).
 
 
 static func burrow(parent: Node3D, pos: Vector3) -> void:

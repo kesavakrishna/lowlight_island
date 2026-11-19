@@ -16,7 +16,7 @@ const BIOME_COLORS := [
 ]
 
 
-static func render(gen: RefCounted, px: int = 3) -> Image:
+static func render(gen: RefCounted, px: int = 3, markers: bool = true) -> Image:
 	var n: int = gen.n
 	var img := Image.create(n * px, n * px, false, Image.FORMAT_RGB8)
 	var light := Vector3(-0.6, 0.7, -0.4).normalized()
@@ -40,6 +40,8 @@ static func render(gen: RefCounted, px: int = 3) -> Image:
 			if gen.cliff[k] == 1 and b != 0:
 				col = col.darkened(0.45)
 			img.fill_rect(Rect2i(i * px, j * px, px, px), col)
+	if not markers:
+		return img
 	for g in gen.grass:
 		_disc(img, gen, g["center"], g["radius"], Color(0.78, 0.82, 0.45), px, true)
 	for t in gen.trees:
