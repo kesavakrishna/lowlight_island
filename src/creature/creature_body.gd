@@ -4,6 +4,7 @@ extends RefCounted
 ## returning individual is recognisable. Swap these builders for real models later.
 
 const Geo = preload("res://src/world/geo.gd")
+const CMesh = preload("res://src/creature/creature_mesh.gd")
 
 const CALLS := {          # sound, pitch, volume
 	"stalker": ["call", 1.0, 4.0],
@@ -37,11 +38,12 @@ static func _parts(parent: Node3D, torso_y: float) -> Dictionary:
 
 
 static func _stalker(parent: Node3D) -> Dictionary:
-	var skin := Geo.mat(Color(0.035, 0.03, 0.035), 0.45)
+	var skin := CMesh.skin(Color(0.035, 0.03, 0.035), 0.55)
 	var eye_m := Geo.mat(Color(0.9, 0.6, 0.2), 0.3, Color(1.0, 0.55, 0.15), 2.5)
 	var d := _parts(parent, 1.15)
 	var torso: Node3D = d["torso"]
-	Geo.mesh(torso, _capsule(0.24, 1.2), Transform3D(Basis.IDENTITY, Vector3(0, 0.55, 0)), skin)
+	CMesh.add(torso, CMesh.tube(PackedVector3Array([Vector3(0, -0.05, 0.05), Vector3(0, 0.45, 0.0), Vector3(0, 0.95, 0.06), Vector3(0, 1.25, -0.12)]),
+		PackedFloat32Array([0.2, 0.15, 0.27, 0.11])), skin)
 	Geo.sphere(torso, 0.26, Vector3(0, 1.05, 0.05), skin, Vector3(1.6, 0.6, 1.0))
 	var head := Node3D.new()
 	head.position = Vector3(0, 1.3, -0.2)
@@ -60,11 +62,12 @@ static func _stalker(parent: Node3D) -> Dictionary:
 
 ## Blind, low and hunched, with wide ear flaps and no eyes at all.
 static func _listener(parent: Node3D) -> Dictionary:
-	var skin := Geo.mat(Color(0.32, 0.29, 0.27), 0.6)
+	var skin := CMesh.skin(Color(0.3, 0.27, 0.25), 0.45)
 	var dark := Geo.mat(Color(0.05, 0.03, 0.03), 0.8)
 	var d := _parts(parent, 0.85)
 	var torso: Node3D = d["torso"]
-	Geo.mesh(torso, _capsule(0.3, 1.3), Transform3D(Basis(Vector3.RIGHT, PI * 0.42), Vector3(0, 0.25, 0.05)), skin)
+	CMesh.add(torso, CMesh.tube(PackedVector3Array([Vector3(0, 0.15, 0.7), Vector3(0, 0.3, 0.15), Vector3(0, 0.38, -0.4), Vector3(0, 0.45, -0.68)]),
+		PackedFloat32Array([0.16, 0.3, 0.28, 0.17])), skin)
 	var head := Node3D.new()
 	head.position = Vector3(0, 0.45, -0.75)
 	torso.add_child(head)
@@ -83,7 +86,7 @@ static func _listener(parent: Node3D) -> Dictionary:
 
 ## Squat and broad with armoured back plates, heavy claws and small low red eyes.
 static func _digger(parent: Node3D) -> Dictionary:
-	var skin := Geo.mat(Color(0.12, 0.09, 0.06), 0.8)
+	var skin := CMesh.skin(Color(0.12, 0.09, 0.06), 0.3)
 	var plate := Geo.mat(Color(0.2, 0.16, 0.12), 0.6)
 	var eye_m := Geo.mat(Color(0.6, 0.1, 0.05), 0.3, Color(0.9, 0.15, 0.05), 1.6)
 	var d := _parts(parent, 0.7)
@@ -111,12 +114,13 @@ static func _digger(parent: Node3D) -> Dictionary:
 
 ## Spindly: a small body on very long arms with hooked claws and four pale eyes.
 static func _climber(parent: Node3D) -> Dictionary:
-	var skin := Geo.mat(Color(0.07, 0.08, 0.07), 0.5)
+	var skin := CMesh.skin(Color(0.07, 0.08, 0.07), 0.5)
 	var claw := Geo.mat(Color(0.5, 0.48, 0.42), 0.4)
 	var eye_m := Geo.mat(Color(0.6, 0.9, 0.6), 0.3, Color(0.5, 0.95, 0.55), 1.8)
 	var d := _parts(parent, 1.25)
 	var torso: Node3D = d["torso"]
-	Geo.mesh(torso, _capsule(0.17, 0.8), Transform3D(Basis.IDENTITY, Vector3(0, 0.4, 0)), skin)
+	CMesh.add(torso, CMesh.tube(PackedVector3Array([Vector3(0, -0.05, 0.02), Vector3(0, 0.4, 0.05), Vector3(0, 0.8, -0.02)]),
+		PackedFloat32Array([0.12, 0.09, 0.16])), skin)
 	var head := Node3D.new()
 	head.position = Vector3(0, 0.95, -0.12)
 	torso.add_child(head)
@@ -202,9 +206,16 @@ static func _limb(parent: Node3D, origin: Vector3, length: float, radius: float,
 	var pivot := Node3D.new()
 	pivot.position = origin
 	parent.add_child(pivot)
-	Geo.rod(pivot, Vector3.ZERO, Vector3(0, -length * 0.55, -0.05), radius, m)
-	Geo.rod(pivot, Vector3(0, -length * 0.55, -0.05), Vector3(0, -length, -0.12), radius * 0.75, m)
-	Geo.sphere(pivot, radius * 1.4, Vector3(0, -length, -0.14), m, Vector3(1, 0.6, 1.8))
+	# Shoulder/hip, a knotted joint, a thin wrist, then long splayed digits.
+	var pts := PackedVector3Array([Vector3.ZERO, Vector3(0, -length * 0.5, -0.06), Vector3(0, -length * 0.56, -0.07),
+		Vector3(0, -length * 0.93, -0.14), Vector3(0, -length, -0.2)])
+	var rads := PackedFloat32Array([radius * 1.25, radius * 0.85, radius * 1.0, radius * 0.55, radius * 0.6])
+	CMesh.add(pivot, CMesh.tube(pts, rads, 7, 3), m)
+	for f in [-1.0, 0.0, 1.0]:
+		var base := Vector3(0, -length, -0.2)
+		var tip := base + Vector3(f * radius * 1.6, -radius * 1.5, -radius * 3.2)
+		CMesh.add(pivot, CMesh.tube(PackedVector3Array([base, base.lerp(tip, 0.6) + Vector3(0, radius * 0.4, 0), tip]),
+			PackedFloat32Array([radius * 0.35, radius * 0.25, radius * 0.06]), 5, 2), m)
 	return pivot
 
 

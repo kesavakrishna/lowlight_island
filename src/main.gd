@@ -144,6 +144,7 @@ func _on_match_begin(params: Dictionary) -> void:
 			c.ctype = t
 			c.stats = Tuning.creature_stats(t, 1)
 			c.hold_at(at, lp.global_position, 999.0, "lineup")
+			c.dev_statue = true
 			c.yaw = atan2(-(lp.global_position.x - at.x), -(lp.global_position.z - at.z)) + PI
 			i += 1
 	if opts.has("map") and match_node.hud:

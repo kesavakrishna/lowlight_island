@@ -33,6 +33,29 @@ func _ready() -> void:
 	streams["wind"] = _wav(_wind(), true)
 	streams["drone"] = _wav(_drone(), true)
 	streams["breath"] = _wav(_breath(), true)
+	_load_recordings()
+
+
+## Recorded sounds replace the synthesized placeholders: drop <cue>.ogg / .wav / .mp3 into
+## res://assets/audio/ (see assets/audio/README.md for the list). Looping cues loop.
+const LOOPING := ["wind", "drone", "breath"]
+
+
+func _load_recordings() -> void:
+	for cue in streams.keys():
+		for ext in ["ogg", "wav", "mp3"]:
+			var path := "res://assets/audio/%s.%s" % [cue, ext]
+			if ResourceLoader.exists(path):
+				var st: AudioStream = load(path)
+				if st == null:
+					continue
+				if cue in LOOPING:
+					if st is AudioStreamOggVorbis or st is AudioStreamMP3:
+						st.loop = true
+					elif st is AudioStreamWAV:
+						st.loop_mode = AudioStreamWAV.LOOP_FORWARD
+				streams[cue] = st
+				break
 
 
 func play_3d(sound: String, pos: Vector3, volume_db: float = 0.0, pitch: float = 1.0, max_dist: float = 70.0) -> void:

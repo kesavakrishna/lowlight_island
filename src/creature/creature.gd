@@ -75,6 +75,7 @@ var stuck_timer := 0.0
 var move_speed := 0.0
 var yaw := 0.0
 var log_ai := false
+var dev_statue := false           # --dev-lineup: stands still and senses nothing
 var leash := Vector3.INF          # dawn: stay in the shade near this point
 var leash_r := 14.0
 var underground := false          # diggers travel below soft ground
@@ -271,7 +272,7 @@ func _log(text: String) -> void:
 
 
 func server_tick(delta: float) -> void:
-	if state == D.CState.DORMANT:
+	if state == D.CState.DORMANT or dev_statue:
 		return
 	state_time += delta
 	attack_cd -= delta
