@@ -771,7 +771,8 @@ func notify(p: Node, text: String) -> void:
 	if p.is_local:
 		if hud:
 			hud.notice(text)
-	else:
+	elif not p.away and _ready_set.has(p.peer_id):
+		# Never message a player who dropped (their avatar waits) or hasn't built the match yet.
 		_rpc_notice.rpc_id(p.peer_id, text)
 
 
@@ -1350,7 +1351,7 @@ func _srv_rest(delta: float) -> void:
 func send_note(p: Node, id: int) -> void:
 	if p.is_local:
 		_rpc_note(id)
-	else:
+	elif not p.away and _ready_set.has(p.peer_id):
 		_rpc_note.rpc_id(p.peer_id, id)
 
 

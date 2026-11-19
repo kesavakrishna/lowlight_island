@@ -3,7 +3,7 @@
 First-person online co-op survival horror for 2–4 friends, built with **Godot 4.7 + GDScript**.
 The full design brief lives in [LOWLIGHT_ISLAND.md](LOWLIGHT_ISLAND.md).
 
-## Status: milestones 1–5
+## Status: milestones 1–5, milestone 6 under way
 
 | Milestone | State |
 |---|---|
@@ -12,7 +12,7 @@ The full design brief lives in [LOWLIGHT_ISLAND.md](LOWLIGHT_ISLAND.md).
 | 3. Seeds make new worlds | Done: every run generates and validates a new island, rebuilt identically on every peer, with the v2 Canopy Realism art. |
 | 4. One full escape run | Done: battery → radio → broadcast → dawn boat, nightly escalation, win / loss, rematch. Reconnect to your slot mid-run. |
 | 5. Finish the co-op systems | Done: four creature types (Stalker, Listener, Digger, Climber) with personalities, scars, learned counters, grudges and late-night tricks; Nerve and private hallucinations; building at slots with damage states; trails that lead patrols to used shelters; shove; rest; capture and burrow raids; silent pings; peeking and mantling. Plus more to do on each island: the keeper's notes, cottage and lighthouse, and the optional skiff escape. |
-| 6. Replace placeholders and playtest | Next: real creature models and recorded sound, teaching the controls, 2–4 player playtests across PCs, tuning, a Windows export |
+| 6. Replace placeholders and playtest | In progress. Done: first-run hints and a How to play card, rebinding / brightness / captions, run reports with the post-run question and F8 notes, a chaos-bot soak test, organic creature meshes, drop-in recorded sounds (`assets/audio/README.md`), a standalone Windows build (`tools/export_windows.ps1`). Needs people: 2–4 player playtests across PCs and tuning (`docs/PLAYTEST.md`), recorded sounds. |
 
 ## Prototype v2 (reference)
 
@@ -87,15 +87,25 @@ fourth night they stop hiding.
 | F3 | Creature debug overlay (state, reason for last decision, awareness, target) |
 | F6 | Host only, dev: skip to the next phase |
 
+## Share a build
+
+```
+powershell -ExecutionPolicy Bypass -File tools\export_windows.ps1 -Godot "C:\path	o\Godot_v4.7.2-stable_win64_console.exe"
+```
+Produces `build/LowlightIsland-windows.zip` (the game, a short PLAYING.txt and the remote-play guide). Needs the
+4.7.2 export templates (Godot editor: Editor > Manage Export Templates). See `docs/PLAYTEST.md` for running a
+playtest and what to tune.
+
 ## Tests
 
 ```
 GODOT=/path/to/godot tools/run_tests.sh
 ```
-Runs headless unit + integration tests (`tests/test_*.gd`: routes, cave door pathing, cover queries,
+Runs headless unit + integration tests (86 of them) (`tests/test_*.gd`: routes, cave door pathing, cover queries,
 escalation caps, climbing / rope / bare-trunk drop, grass concealment, witnessed climbs, unseen patrols,
 noisemaker lure, door breach, crawl tunnel, crew loss) and a two-instance ENet smoke test
-(host + scripted bot client).
+(host + scripted bot client), plus a drop-and-reconnect run. `tools/soak_test.sh` runs three chaos bots over
+several fast nights and fails on any script or engine error.
 
 ### Seed preview
 
