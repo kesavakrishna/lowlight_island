@@ -36,6 +36,9 @@ var dragged_by := -1             # creature id dragging this downed player
 var lean := 0.0                  # -1 left .. 1 right (peeking)
 var resting := false             # resting in a dark shelter while someone keeps watch
 var build_progress := 0.0
+var mantle_t := -1.0
+var mantle_from := Vector3.ZERO
+var mantle_to := Vector3.ZERO
 var last_dry := Vector3.ZERO
 var revive_progress := 0.0
 var downed_time := 0.0
@@ -251,6 +254,26 @@ func simulate(inp: Dictionary, delta: float) -> void:
 	var mv := Vector2(inp.get("mx", 0.0), inp.get("my", 0.0)).limit_length(1.0)
 	var dir := Basis(Vector3.UP, yaw) * Vector3(mv.x, 0, mv.y)
 	var btn: int = inp.get("btn", 0)
+	# Mantling: a short scripted vault over a waist-high obstacle.
+	if mantle_t >= 0.0:
+		mantle_t += delta / 0.45
+		var f := smoothstep(0.0, 1.0, minf(mantle_t, 1.0))
+		var up := mantle_from.lerp(Vector3(mantle_from.x, mantle_to.y, mantle_from.z), minf(f * 1.6, 1.0))
+		global_position = up.lerp(mantle_to, maxf(0.0, f * 1.6 - 0.6))
+		velocity = Vector3.ZERO
+		if mantle_t >= 1.0:
+			mantle_t = -1.0
+		return
+	# Leaning (peek): blocked by a wall on that side so you can't see through it.
+	var lean_target := 0.0
+	if mode == D.Mode.NORMAL and not sprinting:
+		if btn & D.BTN_LEAN_L:
+			lean_target = -1.0
+		elif btn & D.BTN_LEAN_R:
+			lean_target = 1.0
+	if lean_target != 0.0 and test_move(global_transform, Vector3(cos(yaw), 0, -sin(yaw)) * lean_target * 0.5):
+		lean_target = 0.0
+	lean = move_toward(lean, lean_target, delta * 5.0)
 	var wants_sprint := (btn & D.BTN_SPRINT) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and mv.length() > 0.2 and not carrying
 	if wants_sprint and stamina > 0.0 and (sprinting or stamina >= Tuning.sprint_min_to_start):
 		sprinting = true
@@ -281,6 +304,9 @@ func simulate(inp: Dictionary, delta: float) -> void:
 	var hv := Vector3(velocity.x, 0, velocity.z).move_toward(target, Tuning.accel * delta)
 	velocity.x = hv.x
 	velocity.z = hv.z
+	if is_on_floor() and (btn & D.BTN_JUMP) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and not carrying and mv.y < -0.3:
+		if _try_mantle():
+			return
 	if is_on_floor():
 		if (btn & D.BTN_JUMP) != 0 and stance == D.Stance.STAND and mode == D.Mode.NORMAL and not carrying:
 			velocity.y = Tuning.jump_velocity
@@ -289,6 +315,23 @@ func simulate(inp: Dictionary, delta: float) -> void:
 	velocity.y -= Tuning.gravity * delta
 	move_and_slide()
 	moving = Vector2(velocity.x, velocity.z).length() > 0.4
+
+
+## Space while walking into something waist-high (up to ~1.4 m): climb over it.
+func _try_mantle() -> bool:
+	var fwd := Basis(Vector3.UP, yaw) * Vector3.FORWARD
+	if not test_move(global_transform, fwd * 0.55):
+		return false
+	for h in [0.5, 0.8, 1.1, 1.4]:
+		var raised := global_transform.translated(Vector3(0, h, 0))
+		if test_move(global_transform, Vector3(0, h, 0)):
+			return false   # no headroom
+		if not test_move(raised, fwd * 0.9):
+			mantle_from = global_position
+			mantle_to = global_position + Vector3(0, h + 0.05, 0) + fwd * 0.9
+			mantle_t = 0.0
+			return true
+	return false
 
 
 # ------------------------------------------------------------------ client side
@@ -366,7 +409,9 @@ func _process(delta: float) -> void:
 	var target_eye := eye_height()
 	_eye_h = lerpf(_eye_h, target_eye, clampf(delta * 10.0, 0.0, 1.0))
 	head.position.y = _eye_h
+	head.position.x = lean * 0.45
 	head.rotation.x = pitch
+	head.rotation.z = -lean * 0.14
 	# Body pose by stance.
 	var lying := stance == D.Stance.PRONE or mode == D.Mode.DOWNED
 	body_mesh.rotation.x = lerpf(body_mesh.rotation.x, -PI * 0.5 if lying else 0.0, clampf(delta * 8.0, 0.0, 1.0))

@@ -259,6 +259,7 @@ func _physics_process(delta: float) -> void:
 		_srv_tick_away(delta)
 		_srv_traces(delta)
 		_srv_nerve(delta)
+		_srv_rest(delta)
 		_srv_drags()
 		_srv_raids(delta)
 		if not over:
@@ -371,6 +372,10 @@ func _local_input(delta: float) -> Dictionary:
 			btn |= D.BTN_JUMP
 		if Input.is_action_pressed("interact"):
 			btn |= D.BTN_INTERACT
+		if Input.is_action_pressed("lean_left"):
+			btn |= D.BTN_LEAN_L
+		elif Input.is_action_pressed("lean_right"):
+			btn |= D.BTN_LEAN_R
 	return {"mx": mv.x, "my": mv.y, "yaw": look_yaw, "pitch": look_pitch, "stance": want_stance, "btn": btn}
 
 
@@ -431,6 +436,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			var it := best_interactable(lp)
 			if it.get("kind", "") == "rope":
 				request("interact", "rope", it["id"])
+	elif event.is_action_pressed("rest"):
+		request("rest")
+	elif event.is_action_pressed("ping") or event.is_action_pressed("ping_danger") or event.is_action_pressed("ping_hold"):
+		var kind := "move" if event.is_action_pressed("ping") else ("danger" if event.is_action_pressed("ping_danger") else "hold")
+		var at := _ping_target()
+		request("ping", kind, at)
 	elif event.is_action_pressed("shove"):
 		if lp.mode == D.Mode.NORMAL:
 			request("shove", look_yaw, look_pitch)
@@ -491,7 +502,7 @@ func _rpc_input(s: int, mx: float, my: float, y: float, pt: float, st: int, btn:
 		return
 	p.input_queue.append({
 		"seq": s, "mx": clampf(mx, -1.0, 1.0), "my": clampf(my, -1.0, 1.0),
-		"yaw": y, "pitch": clampf(pt, -1.55, 1.55), "stance": clampi(st, 0, 2), "btn": btn & 7,
+		"yaw": y, "pitch": clampf(pt, -1.55, 1.55), "stance": clampi(st, 0, 2), "btn": btn & 31,
 	})
 	if p.input_queue.size() > 12:
 		p.input_queue = p.input_queue.slice(-6)
@@ -630,6 +641,13 @@ func _handle_request(pid: int, kind: String, a: Variant, b: Variant) -> void:
 		"shove":
 			if p.mode == D.Mode.NORMAL and typeof(a) == TYPE_FLOAT:
 				_srv_shove(p)
+		"rest":
+			_srv_toggle_rest(p)
+		"ping":
+			# Silent: teammates see it, creatures never hear it.
+			if typeof(a) == TYPE_STRING and a in ["move", "danger", "hold"] and typeof(b) == TYPE_VECTOR3 \
+					and (b as Vector3).distance_to(p.global_position) < 90.0 and p.mode != D.Mode.CAPTURED and p.mode != D.Mode.ESCAPED:
+				_broadcast_event("ping", b, {"kind": a, "name": p.display_name})
 		"repair":
 			# V: patch a damaged door you're next to, otherwise build / repair what fits here.
 			if p.mode == D.Mode.NORMAL and _near_damaged_door(p):
@@ -1156,6 +1174,59 @@ func _nm_node(pos: Vector3) -> Node3D:
 	return n
 
 
+# ================================================================== rest and pings
+
+func _sheltered(p: Node) -> bool:
+	return p.inside_cave or p.tree_id >= 0 or (p.mode == D.Mode.PERCHED)
+
+
+func _watcher_near(p: Node) -> bool:
+	if players.size() == 1:
+		return true   # solo testing: nobody to keep watch, allow it
+	for q in players.values():
+		if q != p and q.mode == D.Mode.NORMAL and not q.resting and q.global_position.distance_to(p.global_position) < Tuning.rest_watch_range:
+			return true
+	return false
+
+
+func _srv_toggle_rest(p: Node) -> void:
+	if p.resting:
+		p.resting = false
+		return
+	if p.mode != D.Mode.NORMAL and p.mode != D.Mode.PERCHED:
+		return
+	if not _sheltered(p) or p.lantern_open:
+		notify(p, "Rest somewhere dark and sheltered - a cave or up a tree - with the lantern shut.")
+		return
+	if not _watcher_near(p):
+		notify(p, "Someone has to keep watch while you rest.")
+		return
+	p.resting = true
+	notify(p, "Resting. Moving or opening the lantern ends it.")
+
+
+func _srv_rest(delta: float) -> void:
+	for p in players.values():
+		if not p.resting:
+			continue
+		var li: Dictionary = p.last_input
+		var moving_input: bool = absf(li.get("mx", 0.0)) + absf(li.get("my", 0.0)) > 0.2
+		if moving_input or p.lantern_open or not _sheltered(p) or not _watcher_near(p) or (p.mode != D.Mode.NORMAL and p.mode != D.Mode.PERCHED):
+			p.resting = false
+			continue
+		p.stamina = minf(Tuning.stamina_max, p.stamina + Tuning.rest_stamina * delta)
+
+
+## Where the local player is looking (for pings): the first thing hit within 80 m.
+func _ping_target() -> Vector3:
+	var lp := local_player
+	var from: Vector3 = lp.eye_position()
+	var to: Vector3 = from + lp.look_dir() * 80.0
+	var q := PhysicsRayQueryParameters3D.create(from, to, D.L_WORLD)
+	var hit := get_world_3d().direct_space_state.intersect_ray(q)
+	return hit["position"] if not hit.is_empty() else from + lp.look_dir() * 20.0
+
+
 # ================================================================== nerve (host-owned)
 
 var _nerve_t := 0.0
@@ -1544,6 +1615,7 @@ func _send_snapshot() -> void:
 			"bush": flags |= 32
 			"canopy": flags |= 64
 		if p.carrying: flags |= 128
+		if p.resting: flags |= 512
 		if p.away: flags |= 256
 		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood, p.nerve, p.dragged_by, p.lean, _job_progress(p.peer_id)])
 	var cs: Array = []
@@ -1607,6 +1679,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.perch = e[12]
 		p.sprinting = (flags & 2) != 0
 		p.carrying = (flags & 128) != 0
+		p.resting = (flags & 512) != 0
 		p.nerve = e[14]
 		p.build_progress = e[17]
 		p.dragged_by = e[15]
@@ -1746,6 +1819,9 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 			Sfx.play_3d("door_hit", pos, 6.0, 0.5, 60.0)
 			if hud:
 				hud.cue("Something gave way", pos, true)
+		"ping":
+			if hud:
+				hud.add_ping(pos, data.get("kind", "move"), data.get("name", ""))
 		"new_tracks":
 			if hud:
 				hud.notice("Unfamiliar tracks near the burrows this morning. Something new came up last night.")

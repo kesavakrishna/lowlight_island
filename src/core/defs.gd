@@ -21,5 +21,7 @@ const L_SIGHT := 8
 const BTN_SPRINT := 1
 const BTN_JUMP := 2
 const BTN_INTERACT := 4
+const BTN_LEAN_L := 8
+const BTN_LEAN_R := 16
 
 const PROTOCOL_VERSION := 2

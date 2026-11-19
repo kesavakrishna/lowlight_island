@@ -69,6 +69,8 @@ func _setup_input() -> void:
 	_key("lean_left", [KEY_1])
 	_key("lean_right", [KEY_3])
 	_key("ping", [KEY_X])
+	_key("ping_danger", [KEY_B])
+	_key("ping_hold", [KEY_N])
 	_key("rest", [KEY_H])
 	if not InputMap.has_action("shove"):
 		InputMap.add_action("shove")

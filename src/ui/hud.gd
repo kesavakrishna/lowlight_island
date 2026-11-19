@@ -31,6 +31,7 @@ var _map: Control
 var _map_tex: TextureRect
 var _map_marks: Control
 var _map_px := 4
+var _pings: Array = []   # {pos, kind, name, t, node}
 var _nerve_veil: TextureRect
 var _nerve_label: Label
 
@@ -197,6 +198,37 @@ func _build_map(root: Control) -> void:
 	_map_tex.add_child(_map_marks)
 
 
+const PING_COLORS := {"move": Color(0.45, 0.9, 1.0), "danger": Color(1.0, 0.35, 0.3), "hold": Color(1.0, 0.85, 0.35)}
+const PING_TEXT := {"move": "MOVE HERE", "danger": "DANGER", "hold": "HOLD"}
+
+
+## A silent marker from a teammate, visible in the world and on the map for a few seconds.
+func add_ping(pos: Vector3, kind: String, who: String) -> void:
+	var l := Label3D.new()
+	l.text = "%s\n%s" % [PING_TEXT.get(kind, kind), who]
+	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	l.no_depth_test = true
+	l.fixed_size = true
+	l.pixel_size = 0.0018
+	l.font_size = 30
+	l.outline_size = 8
+	l.modulate = PING_COLORS.get(kind, Color.WHITE)
+	l.position = pos + Vector3(0, 1.2, 0)
+	match_ref.add_child(l)
+	_pings.append({"pos": pos, "kind": kind, "name": who, "t": 8.0, "node": l})
+	notice("%s: %s" % [who, PING_TEXT.get(kind, kind).to_lower()])
+
+
+func _tick_pings(delta: float) -> void:
+	for pg in _pings:
+		pg["t"] -= delta
+		var n: Label3D = pg["node"]
+		n.modulate.a = clampf(pg["t"] / 2.0, 0.0, 1.0)
+	for pg in _pings.filter(func(x: Dictionary) -> bool: return x["t"] <= 0.0):
+		(pg["node"] as Node).queue_free()
+	_pings = _pings.filter(func(x: Dictionary) -> bool: return x["t"] > 0.0)
+
+
 func toggle_map() -> void:
 	if match_ref and _ensure_map_texture():
 		_map.visible = not _map.visible
@@ -250,8 +282,12 @@ func _draw_map() -> void:
 		if i < obj.burrows_known.size() and obj.burrows_known[i]:
 			var names: Array = m.captive_names(i)
 			_map_mark(_map_point(w.burrows[i]), Color(0.6, 0.35, 0.15), "burrow" + ("  (" + ", ".join(names) + ")" if not names.is_empty() else ""), font)
+	for pg in _pings:
+		var pp := _map_point(pg["pos"])
+		_map_marks.draw_circle(pp, 6.0, PING_COLORS.get(pg["kind"], Color.WHITE))
+		_map_marks.draw_string(font, pp + Vector2(8, -6), PING_TEXT.get(pg["kind"], ""), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, PING_COLORS.get(pg["kind"], Color.WHITE))
 	for p in m.players.values():
-		if p.mode == D.Mode.ESCAPED:
+		if p.mode == D.Mode.ESCAPED or p.mode == D.Mode.CAPTURED:
 			continue
 		var pt := _map_point(p.global_position)
 		if p == m.local_player:
@@ -283,7 +319,7 @@ func _build_pause(root: Control) -> void:
 	t.add_theme_font_size_override("font_size", 26)
 	_pause_main.add_child(t)
 	var controls := Label.new()
-	controls.text = "WASD move · Shift sprint · Ctrl/C crouch · Z prone · Space jump/stand/climb down\nE interact (hold to revive) · F lantern shutter · G throw noisemaker · R rope\nQ put the battery down · V repair a cave door (wood) · M map\nF3 creature debug overlay · F6 skip phase (host, dev)"
+	controls.text = "WASD move · Shift sprint · Ctrl/C crouch · Z prone · Space jump/stand/climb down\nE interact (hold to revive) · F lantern shutter · G throw noisemaker · R rope\nQ put the battery down · V build / repair (wood) · M map · H rest\nLeft click shove · hold 1 / 3 lean · X move / B danger / N hold ping · Space into a ledge to climb over\nF3 creature debug overlay · F6 skip phase (host, dev)"
 	controls.add_theme_font_size_override("font_size", 15)
 	_pause_main.add_child(controls)
 	for b in [["Resume", _resume], ["Settings", _open_settings], ["Leave run", _leave]]:
@@ -443,6 +479,7 @@ func _process(delta: float) -> void:
 		ordinal = " %d" % m.day_index
 	_clock.text = "%s%s  ·  %d:%02d until %s" % [label, ordinal, int(left) / 60, int(left) % 60, next_names[m.phase]]
 	_prompt.text = m.prompt_text()
+	_tick_pings(delta)
 	var obj: RefCounted = m.objectives
 	_objective.text = obj.objective_text() if obj else ""
 	_broadcast_bar.visible = obj != null and obj.enabled and obj.radio_powered and not obj.broadcast_done and obj.broadcast > 0.0
@@ -468,6 +505,8 @@ func _process(delta: float) -> void:
 		var stance_name: String = ["Standing", "Crouched", "Prone"][p.stance]
 		if p.carrying:
 			lines.append("Carrying the battery  [Q] put down")
+		if p.resting:
+			lines.append("Resting while someone keeps watch")
 		lines.append("%s · Lantern %s · Noisemakers %d · Wood %d" % [stance_name, "OPEN" if p.lantern_open else "shuttered", p.noisemakers, p.wood])
 		_status.text = "\n".join(lines)
 		var low := clampf(1.0 - p.nerve / Tuning.nerve_max, 0.0, 1.0)
