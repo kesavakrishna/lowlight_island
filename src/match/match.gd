@@ -386,7 +386,63 @@ func _local_input(delta: float) -> Dictionary:
 	return {"mx": mv.x, "my": mv.y, "yaw": look_yaw, "pitch": look_pitch, "stance": want_stance, "btn": btn}
 
 
+var bot_chaos := false
+var _chaos_t := 0.0
+var _chaos_rng := RandomNumberGenerator.new()
+var _chaos_btn := 0
+var _chaos_mv := Vector2(0, -1)
+
+
+## Soak testing: a bot that wanders and presses every action at random.
+func _chaos_input(delta: float) -> Dictionary:
+	var lp := local_player
+	_chaos_t -= delta
+	if _chaos_t <= 0.0:
+		_chaos_t = _chaos_rng.randf_range(0.4, 2.0)
+		_chaos_mv = Vector2(_chaos_rng.randf_range(-1, 1), _chaos_rng.randf_range(-1, 0.3))
+		look_yaw += _chaos_rng.randf_range(-1.2, 1.2)
+		look_pitch = _chaos_rng.randf_range(-0.4, 0.3)
+		_chaos_btn = 0
+		var roll := _chaos_rng.randf()
+		if roll < 0.15:
+			_chaos_btn |= D.BTN_SPRINT
+		elif roll < 0.2:
+			_chaos_btn |= D.BTN_JUMP
+		elif roll < 0.3:
+			_chaos_btn |= D.BTN_INTERACT
+		elif roll < 0.35:
+			_chaos_btn |= D.BTN_LEAN_L
+		match _chaos_rng.randi() % 14:
+			0: want_stance = _chaos_rng.randi() % 3
+			1: request("lantern", not lp.lantern_open)
+			2:
+				if lp.noisemakers > 0:
+					request("throw", look_yaw, 0.3)
+			3:
+				var it := best_interactable(lp)
+				if not it.is_empty():
+					request("interact", it["kind"], it["id"])
+			4: request("repair")
+			5: request("ping", "move", lp.global_position + Vector3(3, 0, 3))
+			6: request("rest")
+			7: request("shove", look_yaw, look_pitch)
+			8: request("perch", ["up", "down", "rope"][_chaos_rng.randi() % 3])
+			9:
+				if lp.carrying:
+					request("drop")
+			10:
+				for t in world.trees:
+					if (t["pos"] as Vector3).distance_to(lp.global_position) < 2.5:
+						for it2 in world.interactables:
+							if it2["kind"] == "climb" and it2["tree"] == t["id"]:
+								request("interact", "climb", it2["id"])
+						break
+	return {"mx": _chaos_mv.x, "my": _chaos_mv.y, "yaw": look_yaw, "pitch": look_pitch, "stance": want_stance, "btn": _chaos_btn}
+
+
 func _bot_input(delta: float) -> Dictionary:
+	if bot_chaos:
+		return _chaos_input(delta)
 	# Scripted movement for the headless two-instance smoke test.
 	_bot_t += delta
 	var mv := Vector2(0, -1)

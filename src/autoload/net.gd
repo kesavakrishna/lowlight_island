@@ -195,7 +195,9 @@ func forget_peer(id: int) -> void:
 
 
 func _on_peer_connected(id: int) -> void:
-	_relax_timeout(id)   # then wait for _register
+	# Clients also hear about each other, but only the host has direct ENet peers.
+	if multiplayer.is_server():
+		_relax_timeout(id)   # then wait for _register
 
 
 ## Building a generated island blocks a peer for a few seconds on slow PCs; don't drop

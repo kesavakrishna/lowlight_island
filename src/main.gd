@@ -93,6 +93,8 @@ func _on_match_begin(params: Dictionary) -> void:
 	match_node = MatchScript.new()
 	match_node.setup(params)
 	match_node.bot = opts.has("bot")
+	match_node.bot_chaos = str(opts.get("bot", "")) == "chaos"
+	match_node._chaos_rng.seed = hash(opts.get("name", "bot"))
 	if Net.is_host and opts.has("start-phase"):
 		match_node.dev_start_phase = {"day": D.Phase.DAY, "dusk": D.Phase.DUSK, "night": D.Phase.NIGHT}.get(str(opts["start-phase"]), -1)
 	add_child(match_node)
