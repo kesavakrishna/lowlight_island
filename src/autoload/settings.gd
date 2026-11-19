@@ -9,6 +9,7 @@ var mouse_sensitivity := 0.12   # degrees per pixel
 var fov := 80.0
 var camera_shake := 1.0         # 0 disables shake
 var master_volume := 0.8
+var show_nerve := false         # optional numeric Nerve meter (default: body and senses only)
 var player_name := "Survivor"
 var last_address := "127.0.0.1"
 
@@ -25,6 +26,7 @@ func load_settings() -> void:
 		fov = cfg.get_value("video", "fov", fov)
 		camera_shake = cfg.get_value("video", "camera_shake", camera_shake)
 		master_volume = cfg.get_value("audio", "master_volume", master_volume)
+		show_nerve = cfg.get_value("video", "show_nerve", show_nerve)
 		player_name = cfg.get_value("profile", "name", player_name)
 		last_address = cfg.get_value("profile", "last_address", last_address)
 	apply()
@@ -36,6 +38,7 @@ func save_settings() -> void:
 	cfg.set_value("video", "fov", fov)
 	cfg.set_value("video", "camera_shake", camera_shake)
 	cfg.set_value("audio", "master_volume", master_volume)
+	cfg.set_value("video", "show_nerve", show_nerve)
 	cfg.set_value("profile", "name", player_name)
 	cfg.set_value("profile", "last_address", last_address)
 	cfg.save(PATH)

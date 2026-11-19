@@ -32,6 +32,7 @@ func _ready() -> void:
 	streams["rope"] = _wav(_rustle(0.9, 0.3))
 	streams["wind"] = _wav(_wind(), true)
 	streams["drone"] = _wav(_drone(), true)
+	streams["breath"] = _wav(_breath(), true)
 
 
 func play_3d(sound: String, pos: Vector3, volume_db: float = 0.0, pitch: float = 1.0, max_dist: float = 70.0) -> void:
@@ -274,4 +275,19 @@ func _drone() -> PackedFloat32Array:
 		var t := float(i) / RATE
 		var beat := 0.6 + 0.4 * sin(TAU * t / dur * 3.0)
 		s[i] = (sin(TAU * 41.25 * t) * 0.5 + sin(TAU * 61.875 * t) * 0.3 + sin(TAU * 82.5 * t) * 0.1) * beat * 0.5
+	return s
+
+
+func _breath() -> PackedFloat32Array:
+	# Two ragged breaths a loop: in (rising hiss) and out (falling, lower).
+	var dur := 3.2
+	var s := _buf(dur)
+	var lp := 0.0
+	for i in s.size():
+		var t := float(i) / RATE
+		var cyc := fmod(t, 1.6) / 1.6
+		var inhale := sin(PI * clampf(cyc / 0.4, 0.0, 1.0)) if cyc < 0.4 else 0.0
+		var exhale := sin(PI * clampf((cyc - 0.45) / 0.45, 0.0, 1.0)) if cyc >= 0.45 and cyc < 0.9 else 0.0
+		lp += (_n() - lp) * (0.25 if inhale > 0.0 else 0.12)
+		s[i] = lp * (inhale * 0.7 + exhale * 0.55) * 1.4
 	return s

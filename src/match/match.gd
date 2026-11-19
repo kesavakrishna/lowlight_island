@@ -13,6 +13,7 @@ const EnvCtl = preload("res://src/world/environment_ctl.gd")
 const Hud = preload("res://src/ui/hud.gd")
 const Objectives = preload("res://src/match/objectives.gd")
 const CreatureBody = preload("res://src/creature/creature_body.gd")
+const NerveFx = preload("res://src/player/nerve_fx.gd")
 
 var params: Dictionary = {}
 var is_server := false
@@ -106,6 +107,11 @@ func _ready() -> void:
 	for pid in ids:
 		_spawn_player(int(pid), roster[pid])
 	_spawn_creatures()
+	if not headless and local_player:
+		var fx := NerveFx.new()
+		fx.player = local_player
+		fx.match_ref = self
+		add_child(fx)
 	if not headless:
 		hud = Hud.new()
 		hud.match_ref = self
@@ -246,6 +252,7 @@ func _physics_process(delta: float) -> void:
 		_srv_revive(delta)
 		_srv_tick_away(delta)
 		_srv_traces(delta)
+		_srv_nerve(delta)
 		_srv_drags()
 		_srv_raids(delta)
 		if not over:
@@ -1140,6 +1147,97 @@ func _nm_node(pos: Vector3) -> Node3D:
 	return n
 
 
+# ================================================================== nerve (host-owned)
+
+var _nerve_t := 0.0
+var _breath_t: Dictionary = {}
+
+
+## Escalation also wears on nerve: later nights drain faster, much faster past the threshold.
+func _nerve_escalation() -> float:
+	var n := day_index
+	var m := 1.0 + 0.15 * (mini(n, Tuning.escalation_threshold_night) - 1)
+	if n > Tuning.escalation_threshold_night:
+		m *= minf(pow(1.5, n - Tuning.escalation_threshold_night), 3.0)
+	return m
+
+
+func _srv_nerve(delta: float) -> void:
+	_nerve_t += delta
+	if _nerve_t < 0.25:
+		return
+	var dt := _nerve_t
+	_nerve_t = 0.0
+	var dark := 1.0 - daylight()
+	var standing: Array = []
+	for p in players.values():
+		if p.mode == D.Mode.NORMAL or p.mode == D.Mode.CLIMBING or p.mode == D.Mode.PERCHED or p.mode == D.Mode.DOWNED:
+			standing.append(p)
+	for p in standing:
+		var pos: Vector3 = p.global_position
+		var drain := 0.0
+		var gain := 0.0
+		var sheltered: bool = p.inside_cave or p.cover == "canopy"
+		drain += (Tuning.nerve_shelter_drain if sheltered else Tuning.nerve_dark_drain) * dark
+		var company := false
+		var lit_near := false
+		for q in standing:
+			if q == p:
+				continue
+			var d: float = q.global_position.distance_to(pos)
+			if d < Tuning.nerve_company_range:
+				company = true
+			if q.lantern_open and d < 4.0:
+				lit_near = true
+		if standing.size() > 1 and not company:
+			drain += Tuning.nerve_alone_drain * dark
+		if company:
+			gain += Tuning.nerve_company_restore
+		if p.lantern_open or lit_near:
+			gain += Tuning.nerve_light_restore * (1.0 if p.lantern_open else 0.6)
+		if objectives.enabled and objectives.broadcast_active and pos.distance_to(world.radio_bench) < 8.0:
+			gain += Tuning.nerve_light_restore
+		if p.resting:
+			gain += Tuning.nerve_rest_restore
+		gain += Tuning.nerve_day_restore * daylight()
+		# Seeing one of them up close is the worst of it - worse if it holds a grudge against you.
+		for c in creatures.values():
+			if not c.awake or c.underground:
+				continue
+			var to: Vector3 = c.global_position + Vector3(0, 1.2, 0) - p.eye_position()
+			if to.length() > 18.0 or p.look_dir().dot(to.normalized()) < 0.5:
+				continue
+			if not c.ray_clear(p.eye_position(), c.global_position + Vector3(0, 1.2, 0)):
+				continue
+			var grudge: bool = c.mind.grudge_peer() == p.peer_id
+			drain += Tuning.nerve_creature_seen * (Tuning.nerve_grudge_mult if grudge else 1.0)
+		p.nerve = clampf(p.nerve + (gain - drain * _nerve_escalation()) * dt, 0.0, Tuning.nerve_max)
+		# Ragged breathing below a threshold: creatures can hear it like any other sound.
+		if p.nerve < Tuning.nerve_breath_below and p.mode != D.Mode.DOWNED:
+			_breath_t[p.peer_id] = _breath_t.get(p.peer_id, 0.0) - dt
+			if _breath_t[p.peer_id] <= 0.0:
+				_breath_t[p.peer_id] = 2.0
+				emit_sound(pos, 4.0, "breathing", {"peer": p.peer_id})
+
+
+## Sudden shocks: calls, a breach nearby, a teammate going down or being taken.
+func _nerve_shock(kind: String, pos: Vector3, data: Dictionary) -> void:
+	var amount := 0.0
+	var reach := 40.0
+	match kind:
+		"ccall", "screech": amount = Tuning.nerve_call_shock
+		"door_hit", "breach_warn", "door_break":
+			amount = Tuning.nerve_call_shock
+			reach = 20.0
+		"down", "captured":
+			amount = Tuning.nerve_teammate_down
+			reach = 9999.0
+		_: return
+	for p in players.values():
+		if p.global_position.distance_to(pos) <= reach and p.peer_id != data.get("peer", -1):
+			p.nerve = maxf(0.0, p.nerve - amount)
+
+
 # ================================================================== creatures: shove, drag, capture, raids, traces
 
 func _srv_shove(p: Node) -> void:
@@ -1387,6 +1485,7 @@ func _rpc_client_ready() -> void:
 
 func emit_cue(kind: String, pos: Vector3, data: Dictionary = {}) -> void:
 	if is_server:
+		_nerve_shock(kind, pos, data)
 		_broadcast_event(kind, pos, data)
 
 

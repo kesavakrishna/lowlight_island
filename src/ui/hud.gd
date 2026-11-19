@@ -31,6 +31,8 @@ var _map: Control
 var _map_tex: TextureRect
 var _map_marks: Control
 var _map_px := 4
+var _nerve_veil: TextureRect
+var _nerve_label: Label
 
 
 func _ready() -> void:
@@ -40,6 +42,25 @@ func _ready() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	# Low nerve closes in from the edges of vision.
+	var grad := Gradient.new()
+	grad.set_color(0, Color(0, 0, 0, 0))
+	grad.set_color(1, Color(0, 0, 0, 1))
+	grad.set_offset(0, 0.45)
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(1.05, 1.05)
+	gt.width = 256
+	gt.height = 256
+	_nerve_veil = TextureRect.new()
+	_nerve_veil.texture = gt
+	_nerve_veil.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_nerve_veil.stretch_mode = TextureRect.STRETCH_SCALE
+	_nerve_veil.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_nerve_veil.modulate.a = 0.0
+	root.add_child(_nerve_veil)
 	_vignette = ColorRect.new()
 	_vignette.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_vignette.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -100,6 +121,8 @@ func _ready() -> void:
 	root.add_child(_stamina)
 
 	_status = _label(root, 17, Control.PRESET_BOTTOM_LEFT, Vector2(20, -90), Vector2(700, 70))
+	_nerve_label = _label(root, 15, Control.PRESET_BOTTOM_RIGHT, Vector2(-180, -40), Vector2(160, 24))
+	_nerve_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	_status.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 
 	_notices = VBoxContainer.new()
@@ -447,6 +470,10 @@ func _process(delta: float) -> void:
 			lines.append("Carrying the battery  [Q] put down")
 		lines.append("%s · Lantern %s · Noisemakers %d · Wood %d" % [stance_name, "OPEN" if p.lantern_open else "shuttered", p.noisemakers, p.wood])
 		_status.text = "\n".join(lines)
+		var low := clampf(1.0 - p.nerve / Tuning.nerve_max, 0.0, 1.0)
+		_nerve_veil.modulate.a = lerpf(_nerve_veil.modulate.a, smoothstep(0.3, 1.0, low) * 0.85, clampf(delta * 2.0, 0.0, 1.0))
+		_nerve_label.visible = Settings.show_nerve
+		_nerve_label.text = "Nerve %d" % int(p.nerve)
 		var target_a := 0.0
 		if p.mode == D.Mode.DOWNED:
 			target_a = 0.35 + 0.08 * sin(Time.get_ticks_msec() / 300.0)

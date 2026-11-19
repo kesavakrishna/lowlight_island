@@ -14,6 +14,13 @@ func _ready() -> void:
 	_slider("Field of view", 60.0, 110.0, 1.0, Settings.fov, func(v: float) -> void: Settings.fov = v)
 	_slider("Camera shake", 0.0, 1.0, 0.05, Settings.camera_shake, func(v: float) -> void: Settings.camera_shake = v)
 	_slider("Master volume", 0.0, 1.0, 0.05, Settings.master_volume, func(v: float) -> void: Settings.master_volume = v)
+	var nerve_box := CheckBox.new()
+	nerve_box.text = "Show a numeric Nerve meter"
+	nerve_box.button_pressed = Settings.show_nerve
+	nerve_box.toggled.connect(func(on: bool) -> void:
+		Settings.show_nerve = on
+		Settings.apply())
+	add_child(nerve_box)
 	var back := Button.new()
 	back.text = "Back"
 	back.pressed.connect(func() -> void:
