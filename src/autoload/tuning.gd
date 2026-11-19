@@ -6,6 +6,7 @@ extends Node
 var min_players_to_start := 1        # release target is 2–4; 1 is allowed for dev tests
 var max_players := 4
 var snapshot_rate := 20.0            # host -> client state snapshots per second
+var reconnect_grace := 120.0         # a dropped player's slot (and avatar) waits this long
 var default_port := 24680
 
 # ---------------------------------------------------------------- clock (real seconds)

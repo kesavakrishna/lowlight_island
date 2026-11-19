@@ -13,6 +13,7 @@ var _settings: Control
 var _roster: Label
 var _start: Button
 var _hosting_info: Label
+var _give_up: Button
 
 
 func _ready() -> void:
@@ -106,7 +107,9 @@ func _ready() -> void:
 	col.add_child(help)
 
 	Net.roster_changed.connect(_refresh)
-	Net.status.connect(func(m: String) -> void: _status.text = m)
+	Net.status.connect(func(m: String) -> void:
+		_status.text = m
+		_refresh())
 	_refresh()
 
 
@@ -165,6 +168,21 @@ func _on_settings() -> void:
 
 
 func _refresh() -> void:
+	if Net.reconnecting:
+		_main_box.visible = false
+		_lobby_box.visible = false
+		if _give_up == null:
+			_give_up = Button.new()
+			_give_up.text = "Stop reconnecting"
+			_give_up.pressed.connect(func() -> void:
+				Net.give_up_reconnect()
+				_give_up.visible = false
+				_refresh())
+			_status.get_parent().add_child(_give_up)
+		_give_up.visible = true
+		return
+	if _give_up:
+		_give_up.visible = false
 	var in_lobby := Net.in_session and not Net.roster.is_empty()
 	_lobby_box.visible = in_lobby
 	_main_box.visible = not in_lobby and not _settings.visible

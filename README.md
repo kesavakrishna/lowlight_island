@@ -3,14 +3,16 @@
 First-person online co-op survival horror for 2–4 friends, built with **Godot 4.7 + GDScript**.
 The full design brief lives in [LOWLIGHT_ISLAND.md](LOWLIGHT_ISLAND.md).
 
-## Status: milestones 1–3
+## Status: milestones 1–4 + reconnect
 
 | Milestone | State |
 |---|---|
 | 1. Smallest connected test | Done: first-person co-op, host-authoritative movement with client prediction, Host / Join by Address, shared day–dusk–night–dawn clock |
-| 2. Prove the night | Done in the test clearing (`--world=clearing`): the Stalker (sight + light + weak hearing), lost-sight search, grass / bush / canopy hiding, three climbable tree types, deck + rope exit, cave door with intact / damaged / broken states and a prone-only crawl exit, witnessed-climb commitment, directional cue arrows, noisemakers, down / crawl / revive. **Remote (non-LAN) test still to do — see below.** |
-| 3. Seeds make new worlds | Done: every run generates and validates a new island (coast, grassland, forest, mountains, swamp; caves cut into cliffs; crash, battery, radio and dock), rebuilt identically on every peer and dressed with the v2 prototype's Canopy Realism models, sky and water. `--preview-seeds` renders route-checked maps. |
-| 4. One full escape run | Next: gathering, battery carry / drop / install, broadcast, repeating nights with escalation, dawn boarding, win / loss |
+| 2. Prove the night | Done (`--world=clearing` keeps the test fixture): the Stalker, lost-sight search, grass / bush / canopy hiding, three climbable tree types, rope exit, cave doors with damage states and a prone-only crawl exit, witnessed-climb commitment, directional cue arrows, noisemakers, down / crawl / revive. **Remote (non-LAN) test still to do.** |
+| 3. Seeds make new worlds | Done: every run generates and validates a new island, rebuilt identically on every peer, dressed with the v2 Canopy Realism models, sky and water. `--preview-seeds` renders route-checked maps. |
+| 4. One full escape run | Done: battery carry / drop / install, a broadcast the crew chooses to run after dark (loud and bright, keeps progress when interrupted), nightly escalation from the tuning table, the dawn boat with a boarding window, win / loss with a results screen and fresh-island rematch, wood and door repairs, objective line and sketch map. |
+| Reconnect (from §8) | Done: a dropped player's avatar keeps its slot (and anything it carries) for 2 minutes; the client reconnects automatically with a private token. |
+| 5. Finish the co-op systems | Next: Listener / Digger / Climber, creature memory and personality, Nerve, building at slots, traces, shove, rest, capture and burrow rescue, pings |
 
 ## Prototype v2 (reference)
 
@@ -38,6 +40,19 @@ powershell -ExecutionPolicy Bypass -File tools\run_local_pair.ps1 -Godot "C:\pat
 Remote friends: see [docs/REMOTE_PLAY.md](docs/REMOTE_PLAY.md) (Tailscale / Radmin recommended — plain port
 forwarding often fails behind CGNAT).
 
+## How a run goes
+
+Start at the wreck. The objective line at the top always says what's next.
+1. Find the battery (the wreck's sketch marks a beached skiff or a salvage crate under a tree; `M` shows the rough area).
+2. Carry it to the radio shed on high ground. It's slow and heavy: plan the route, and drop it (`Q`) if you have to.
+3. Connect it, then choose a night to run the broadcast. Someone has to stay at the transmitter while it lights up
+   the shed and hums; every creature in range comes for it. Interruptions keep their progress.
+4. When the call goes out, a boat comes to the old dock at the next dawn and waits for a short boarding window.
+   Creatures linger in the shade along the way. Anyone aboard means the crew escaped.
+
+There's no run timer: each night more creatures come up, faster and quicker to break doors, and past the
+fourth night they stop hiding.
+
 ## Controls
 
 | Key | Action |
@@ -51,6 +66,9 @@ forwarding often fails behind CGNAT).
 | F | Open / shutter the lantern |
 | G | Throw a noisemaker |
 | R | Rope down from the platform |
+| Q | Put the battery down (the carrier can't sprint, jump, climb or go prone) |
+| V | Repair a cave door with wood (cheaper than rebuilding a broken one) |
+| M | Map: a rough sketch; the dock, caves and the battery appear as the crew finds them |
 | Esc | Pause menu: settings (sensitivity, FOV, camera shake, volume), leave |
 | F3 | Creature debug overlay (state, reason for last decision, awareness, target) |
 | F6 | Host only, dev: skip to the next phase |
@@ -78,7 +96,7 @@ battery→radio carry routes and radio→dock.
 Useful dev flags (after `--`): `--host`, `--join=ADDR`, `--port=N`, `--name=S`, `--autostart=N`,
 `--seed=N`, `--world=clearing`, `--fast-clock=X`, `--start-phase=night`, `--log-ai`, `--bot`,
 `--quit-after=S`, `--screenshot=FILE`, `--view=x,y,z,yaw,pitch[,stance]`, `--freeze`, `--lantern`,
-`--preview-seeds=A-B`, `--out=DIR`.
+`--preview-seeds=A-B`, `--out=DIR`, `--map`, `--dev-state=radio|broadcast|boat`, `--drop-after=S`.
 
 ## Layout
 

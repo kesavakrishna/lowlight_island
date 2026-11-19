@@ -28,6 +28,8 @@ var inside_cave := false
 var cave_id := -1
 var speed_mult := 1.0            # terrain multiplier (wading), set before simulate()
 var carrying := false            # the radio battery: no sprint, no climb, no prone, slower
+var away := false                # connection dropped; the avatar waits for a reconnect
+var grace := 0.0
 var wood := 0
 var last_dry := Vector3.ZERO
 var revive_progress := 0.0
@@ -359,6 +361,7 @@ func _process(delta: float) -> void:
 	body_mesh.position.y = 0.3 if lying else 0.0
 	body_mesh.scale.y = 0.7 if stance == D.Stance.CROUCH and not lying else 1.0
 	if name_label:
+		name_label.text = display_name + ("  (reconnecting)" if away else "")
 		name_label.position.y = 0.9 if lying else 2.05
 		name_label.modulate = Color(1, 0.4, 0.3, 0.8) if mode == D.Mode.DOWNED else Color(1, 1, 1, 0.55)
 	_update_lantern_visual(delta)

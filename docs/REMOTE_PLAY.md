@@ -32,7 +32,7 @@ Only works if the host has a real public IPv4 address (not CGNAT).
 |---|---|
 | "Could not reach the host" after a few seconds | Wrong address, host not hosting, firewall blocking UDP 24680, or CGNAT (use Tailscale). |
 | "Version mismatch" | Everyone must run the same build. |
-| "A run is already in progress" | Join while the host is in the lobby (rejoining mid-run arrives in a later milestone). |
+| "A run is already in progress" | Join while the host is in the lobby. A player who drops mid-run reconnects automatically to their slot for 2 minutes. |
 | Rubber-banding | High latency or packet loss; prefer wired connections and a nearby host. |
 
 ## Milestone 2 checklist: first remote test

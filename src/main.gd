@@ -54,6 +54,9 @@ func _ready() -> void:
 		_check_autostart()
 	if opts.has("quit-after"):
 		get_tree().create_timer(float(opts["quit-after"])).timeout.connect(_smoke_quit)
+	if opts.has("drop-after"):
+		# Dev / smoke test: cut this client's connection mid-run; reconnect logic takes over.
+		get_tree().create_timer(float(opts["drop-after"])).timeout.connect(Net.debug_drop)
 	if opts.has("screenshot"):
 		get_tree().create_timer(float(opts.get("shot-delay", "4"))).timeout.connect(_screenshot)
 

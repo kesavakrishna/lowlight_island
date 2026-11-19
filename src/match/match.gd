@@ -103,10 +103,17 @@ func _ready() -> void:
 		add_child(hud)
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 	Net.peer_left.connect(_on_peer_left)
+	Net.peer_rejoined.connect(_on_peer_rejoined)
+	if params.get("rejoin", false) and hud:
+		hud.big_message("Back in the run", "Your slot was kept while you were away.")
 	if local_player:
 		look_yaw = local_player.yaw
 		_bot_yaw0 = local_player.yaw
 		_spawn_pos = local_player.global_position
+	if is_server:
+		_ready_set[multiplayer.get_unique_id()] = true
+	else:
+		_rpc_client_ready.rpc_id(1)
 	if is_server and dev_start_phase >= 0:
 		_set_phase(dev_start_phase)
 	print("[match] started seed=%d players=%d server=%s" % [int(params.get("seed", 0)), players.size(), is_server])
@@ -196,6 +203,7 @@ func _physics_process(delta: float) -> void:
 			c.server_tick(delta)
 		sound_events.clear()
 		_srv_revive(delta)
+		_srv_tick_away(delta)
 		if not over:
 			_check_loss()
 		_snap_accum += delta
@@ -273,7 +281,7 @@ func _set_phase(new_phase: int) -> void:
 					li += 1
 				else:
 					c.go_home()
-	_rpc_event.rpc("phase", Vector3.ZERO, {"phase": phase, "day": day_index})
+	_broadcast_event("phase", Vector3.ZERO, {"phase": phase, "day": day_index})
 
 
 # ================================================================== input
@@ -652,7 +660,7 @@ func _srv_interact(p: Node, kind: String, id: int) -> void:
 			if noisemakers.has(id):
 				p.noisemakers += 1
 				noisemakers.erase(id)
-				_rpc_event.rpc("nm_remove", Vector3.ZERO, {"id": id})
+				_broadcast_event("nm_remove", Vector3.ZERO, {"id": id})
 		_:
 			objectives.interact(p, kind, id)
 
@@ -897,7 +905,10 @@ func end_match(won: bool) -> void:
 	var crew: Array = []
 	for p in players.values():
 		crew.append([p.display_name, p.mode == D.Mode.ESCAPED])
-	_rpc_game_over.rpc({"won": won, "nights": nights_survived, "day": day_index, "crew": crew})
+	var summary := {"won": won, "nights": nights_survived, "day": day_index, "crew": crew}
+	_rpc_game_over(summary)
+	for pid in _ready_peers():
+		_rpc_game_over.rpc_id(pid, summary)
 
 
 @rpc("authority", "call_local", "reliable")
@@ -909,12 +920,78 @@ func _rpc_game_over(summary: Dictionary) -> void:
 
 
 func _on_peer_left(pid: int) -> void:
-	if is_server:
-		var p: Node = players.get(pid)
-		if p and p.carrying:
-			objectives.drop_battery(p)
+	if not is_server:
+		return
+	var p: Node = players.get(pid)
+	if p == null:
+		return
+	if over:
 		_remove_player(pid)
-		_rpc_player_left.rpc(pid)
+		_send_ready("_rpc_player_left", [pid])
+		return
+	# Keep the slot: the avatar stays in the match (and keeps what it carries) for a while.
+	p.away = true
+	p.grace = Tuning.reconnect_grace
+	p.input_queue.clear()
+	p.last_input = {"yaw": p.yaw, "pitch": p.pitch, "stance": p.stance}
+	p.lantern_open = false
+	emit_cue("away", p.global_position, {"name": p.display_name})
+
+
+func _srv_tick_away(delta: float) -> void:
+	for pid in players.keys():
+		var p: Node = players[pid]
+		if not p.away:
+			continue
+		p.grace -= delta
+		if p.grace <= 0.0:
+			if p.carrying:
+				objectives.drop_battery(p)
+			_remove_player(pid)
+			_send_ready("_rpc_player_left", [pid])
+			Net.forget_peer(pid)
+
+
+## Host: a dropped player came back on a new connection. Hand them their avatar.
+func _on_peer_rejoined(old_id: int, new_id: int) -> void:
+	if not is_server or not players.has(old_id):
+		return
+	_rekey(old_id, new_id)
+	var p: Node = players[new_id]
+	p.away = false
+	p.grace = 0.0
+	p.last_seq = 0            # the new connection numbers its inputs from zero
+	p.input_queue.clear()
+	_ready_set.erase(old_id)
+	for pid in _ready_peers():
+		if pid != new_id:
+			_rpc_rekey.rpc_id(pid, old_id, new_id)
+	emit_cue("back", p.global_position, {"name": p.display_name})
+
+
+func _rekey(old_id: int, new_id: int) -> void:
+	var p: Node = players[old_id]
+	players.erase(old_id)
+	players[new_id] = p
+	p.peer_id = new_id
+	p.name = str(new_id)
+	if objectives.carrier == old_id:
+		objectives.carrier = new_id
+	var i: int = objectives.escaped.find(old_id)
+	if i >= 0:
+		objectives.escaped[i] = new_id
+	for c in creatures.values():
+		if c.target_peer == old_id:
+			c.target_peer = new_id
+		if c.awareness.has(old_id):
+			c.awareness[new_id] = c.awareness[old_id]
+			c.awareness.erase(old_id)
+
+
+@rpc("authority", "reliable")
+func _rpc_rekey(old_id: int, new_id: int) -> void:
+	if players.has(old_id):
+		_rekey(old_id, new_id)
 
 
 @rpc("authority", "reliable")
@@ -934,7 +1011,7 @@ func _srv_throw(p: Node, y: float, pt: float) -> void:
 	var pos: Vector3 = p.eye_position() + dir * 0.4
 	var vel := dir * Tuning.throw_speed
 	noisemakers[id] = {"pos": pos, "vel": vel, "landed": false, "pulses": Tuning.noisemaker_pulses, "timer": 0.0, "idle": false, "flight": 0.0, "node": null}
-	_rpc_event.rpc("nm_spawn", pos, {"id": id, "vel": vel})
+	_broadcast_event("nm_spawn", pos, {"id": id, "vel": vel})
 
 
 func _step_projectile(nm: Dictionary, delta: float) -> void:
@@ -968,7 +1045,7 @@ func _srv_update_noisemakers(delta: float) -> void:
 		if not nm["landed"]:
 			_step_projectile(nm, delta)
 			if nm["landed"]:
-				_rpc_event.rpc("nm_land", nm["pos"], {"id": id})
+				_broadcast_event("nm_land", nm["pos"], {"id": id})
 		elif nm["pulses"] > 0:
 			nm["timer"] -= delta
 			if nm["timer"] <= 0.0:
@@ -978,7 +1055,7 @@ func _srv_update_noisemakers(delta: float) -> void:
 				emit_cue("rattle", nm["pos"])
 				if nm["pulses"] == 0:
 					nm["idle"] = true
-					_rpc_event.rpc("nm_idle", nm["pos"], {"id": id})
+					_broadcast_event("nm_idle", nm["pos"], {"id": id})
 
 
 func _client_update_noisemakers(delta: float) -> void:
@@ -997,9 +1074,39 @@ func _nm_node(pos: Vector3) -> Node3D:
 
 # ================================================================== replication
 
+## Host: peers whose match scene is built and can receive match traffic.
+## A client joining (or rejoining) builds its island first, then reports in.
+var _ready_set: Dictionary = {}
+
+
+func _ready_peers() -> Array:
+	var out: Array = []
+	for pid in _ready_set.keys():
+		if pid != multiplayer.get_unique_id() and players.has(pid) and not players[pid].away:
+			out.append(pid)
+	return out
+
+
+func _send_ready(method: String, args: Array) -> void:
+	for pid in _ready_peers():
+		callv("rpc_id", [pid, method] + args)
+
+
+func _broadcast_event(kind: String, pos: Vector3, data: Dictionary) -> void:
+	_on_event(kind, pos, data)
+	for pid in _ready_peers():
+		_rpc_event.rpc_id(pid, kind, pos, data)
+
+
+@rpc("any_peer", "reliable")
+func _rpc_client_ready() -> void:
+	if is_server:
+		_ready_set[multiplayer.get_remote_sender_id()] = true
+
+
 func emit_cue(kind: String, pos: Vector3, data: Dictionary = {}) -> void:
 	if is_server:
-		_rpc_event.rpc(kind, pos, data)
+		_broadcast_event(kind, pos, data)
 
 
 func _send_snapshot() -> void:
@@ -1021,6 +1128,7 @@ func _send_snapshot() -> void:
 			"bush": flags |= 32
 			"canopy": flags |= 64
 		if p.carrying: flags |= 128
+		if p.away: flags |= 256
 		ps.append([p.peer_id, p.global_position, p.yaw, p.pitch, p.stance, p.mode, p.stamina, flags, p.last_seq, p.tree_id, p.noisemakers, p.revive_progress, p.perch, p.wood])
 	var cs: Array = []
 	for c in creatures.values():
@@ -1034,7 +1142,8 @@ func _send_snapshot() -> void:
 		for c in creatures.values():
 			dbg[c.cid] = c.debug_text
 		snap["dbg"] = dbg
-	_rpc_snapshot.rpc(snap)
+	for pid in _ready_peers():
+		_rpc_snapshot.rpc_id(pid, snap)
 
 
 func _door_states() -> Array:
@@ -1073,6 +1182,7 @@ func _rpc_snapshot(s: Dictionary) -> void:
 		p.perch = e[12]
 		p.sprinting = (flags & 2) != 0
 		p.carrying = (flags & 128) != 0
+		p.away = (flags & 256) != 0
 		p.wood = e[13]
 		p.inside_cave = (flags & 8) != 0
 		p.cave_id = world.cave_at(p.global_position) if p.inside_cave else -1
@@ -1169,6 +1279,12 @@ func _on_event(kind: String, pos: Vector3, data: Dictionary) -> void:
 		"boarded":
 			if hud:
 				hud.notice("%s is aboard." % data.get("name", "Someone"))
+		"away":
+			if hud:
+				hud.notice("%s lost their connection. Their slot is held for %d s." % [data.get("name", "Someone"), int(Tuning.reconnect_grace)])
+		"back":
+			if hud:
+				hud.notice("%s is back." % data.get("name", "Someone"))
 		"repair":
 			Sfx.play_3d("door_hit", pos, -4.0, 1.5, 30.0)
 		"screech":

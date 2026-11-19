@@ -21,4 +21,4 @@ const BTN_SPRINT := 1
 const BTN_JUMP := 2
 const BTN_INTERACT := 4
 
-const PROTOCOL_VERSION := 1
+const PROTOCOL_VERSION := 2
